@@ -79,8 +79,12 @@ when the app container starts.
 up; that's you. With `disabled` nobody can sign up, not even the first account. Either way, add users with:
 
 ```bash
-docker compose --env-file .env.production -f docker-compose.production.yml exec app php artisan newsstand:user colleague@example.com --name="Colleague"
+docker compose --env-file .env.production -f docker-compose.production.yml exec -u www-data app php artisan newsstand:user colleague@example.com --name="Colleague"
 ```
+
+**Storage:** `/app/storage` can be a named volume (the default) or a host folder (`./storage:/app/storage`).
+The container prepares it on start: it creates Laravel's folders and gives them to `www-data` (uid 33), then
+runs as that user. Run one-off commands as that user too: `docker compose ... exec -u www-data app php artisan ...`.
 
 **Backups:** everything lives in the `pgdata` volume. For example, nightly:
 

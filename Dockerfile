@@ -36,7 +36,11 @@ LABEL org.opencontainers.image.title="Newsstand" \
       org.opencontainers.image.source="https://github.com/burnacid/Newsstand" \
       org.opencontainers.image.url="https://hub.docker.com/r/burnacid/newsstand"
 
-RUN install-php-extensions pdo_pgsql pdo_mysql redis pcntl intl zip opcache bcmath
+RUN install-php-extensions pdo_pgsql pdo_mysql redis pcntl intl zip opcache bcmath \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends gosu \
+    && rm -rf /var/lib/apt/lists/* \
+    && gosu nobody true
 
 ENV SERVER_NAME=:8080 \
     APP_ENV=production \
@@ -59,8 +63,9 @@ RUN rm -f public/hot public/fonts-manifest.dev.json bootstrap/cache/*.php \
     && mkdir -p /config/psysh \
     && chown -R www-data:www-data storage bootstrap/cache /data/caddy /config/caddy /config/psysh
 
-# Run as an unprivileged user; port 8080 needs no extra capabilities.
-USER www-data
+# The entrypoint starts as root only to prepare /app/storage (often a host
+# mount), then runs everything as www-data. Port 8080 needs no extra privileges.
+# For one-off commands use: docker compose exec -u www-data app php artisan ...
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \

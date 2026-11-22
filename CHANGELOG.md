@@ -6,6 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-11-22
+
+### Fixed
+
+- Docker: the container now works when `/app/storage` is a host folder or an existing volume owned by root.
+  It creates Laravel's storage folders and fixes their ownership on start, then drops to `www-data`.
+  Previously this failed with "tempnam(): file created in the system's temporary directory" or
+  "Please provide a valid cache path".
+- If storage still isn't writable (for example when started as a non-root user), the container stops with a clear message.
+
+### Changed
+
+- Run one-off commands as `www-data`: `docker compose exec -u www-data app php artisan ...`.
+
 ## [1.0.0] - 2026-11-22
 
 First release.
@@ -38,5 +52,6 @@ First release.
 - Server-side fetches are protected against SSRF (private and reserved addresses refused, including after redirects).
 - The test suite refuses to run against a non-test database, so tests can never wipe real data.
 
-[Unreleased]: https://github.com/burnacid/Newsstand/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/burnacid/Newsstand/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/burnacid/Newsstand/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/burnacid/Newsstand/releases/tag/v1.0.0
