@@ -9,17 +9,24 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * @property int $id
- * @property int $user_id
+ * @property int|null $user_id
+ * @property int|null $team_id
  * @property string $name
  * @property int $position
  */
-#[Fillable(['name', 'position'])]
+#[Fillable(['name', 'position', 'team_id'])]
 class Folder extends Model
 {
     /** @return BelongsTo<User, $this> */
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /** @return BelongsTo<Team, $this> */
+    public function team(): BelongsTo
+    {
+        return $this->belongsTo(Team::class);
     }
 
     /** @return HasMany<Subscription, $this> */

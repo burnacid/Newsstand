@@ -14,7 +14,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * is encrypted at rest.
  *
  * @property int $id
- * @property int $user_id
+ * @property int|null $user_id
+ * @property int|null $team_id
  * @property string $type
  * @property string $name
  * @property array<string, mixed> $config
@@ -49,6 +50,12 @@ class AlertChannel extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /** @return BelongsTo<Team, $this> */
+    public function team(): BelongsTo
+    {
+        return $this->belongsTo(Team::class);
     }
 
     /** @return HasMany<Alert, $this> */

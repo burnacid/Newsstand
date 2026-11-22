@@ -10,6 +10,8 @@ use App\Services\Alerts\AlertDispatcher;
 use App\Services\Alerts\AlertMessage;
 use App\Services\Reader\EntryQuery;
 use App\Services\Reader\ReaderSource;
+use App\Services\Teams\FeedAccess;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -42,8 +44,17 @@ class WatchlistMatcher
         $new = 0;
 
         foreach ($entries->groupBy('feed_id') as $feedId => $feedEntries) {
+            // Personal items of everyone who reads the feed, and their teams' items.
+            $readers = FeedAccess::readersOf((int) $feedId)->keys()->all();
+
+            if ($readers === []) {
+                continue;
+            }
+
             $items = WatchlistItem::query()
-                ->whereIn('user_id', DB::table('subscriptions')->select('user_id')->where('feed_id', $feedId))
+                ->where(fn ($q) => $q
+                    ->whereIn('user_id', $readers)
+                    ->orWhereIn('team_id', DB::table('team_user')->select('team_id')->whereIn('user_id', $readers)))
                 ->get();
 
             foreach ($items as $item) {
@@ -63,7 +74,15 @@ class WatchlistMatcher
     {
         $new = 0;
 
-        $this->entries->for($item->user, ReaderSource::all())
+        $query = $item->team_id
+            ? Entry::query()->whereIn('entries.feed_id', FeedAccess::teamFeedIds($item->team_id))
+            : ($item->user ? $this->entries->for($item->user, ReaderSource::all()) : null);
+
+        if ($query === null) {
+            return 0;
+        }
+
+        $query
             ->where('entries.published_at', '>=', now()->subDays($days))
             ->with('cves:id,cve_id,in_kev,cvss_score')
             ->reorder()
@@ -77,13 +96,14 @@ class WatchlistMatcher
     }
 
     /**
-     * CVE ids affecting any of the user's watched products (whether or not a story mentions them).
+     * CVE ids affecting any of the user's (or their teams') watched products,
+     * whether or not a story mentions them.
      *
      * @return Collection<int, int>
      */
     public function cveIdsFor(User $user): Collection
     {
-        $items = $user->watchlist()->get();
+        $items = self::itemsFor($user)->get();
 
         if ($items->isEmpty()) {
             return collect();
@@ -113,11 +133,23 @@ class WatchlistMatcher
 
         return DB::table('watchlist_hits')
             ->join('watchlist_items', 'watchlist_items.id', '=', 'watchlist_hits.watchlist_item_id')
-            ->where('watchlist_items.user_id', $user->id)
+            ->whereIn('watchlist_items.id', self::itemsFor($user)->select('id'))
             ->whereIn('watchlist_hits.entry_id', $entryIds)
             ->get(['watchlist_hits.entry_id', 'watchlist_items.vendor', 'watchlist_items.product'])
             ->groupBy('entry_id')
             ->map(fn (Collection $rows) => $rows->map(fn ($r) => trim($r->vendor.' '.($r->product ?? '')))->unique()->values());
+    }
+
+    /**
+     * The user's own watchlist items and those of their teams.
+     *
+     * @return Builder<WatchlistItem>
+     */
+    public static function itemsFor(User $user): Builder
+    {
+        return WatchlistItem::query()->where(fn ($q) => $q
+            ->where('user_id', $user->id)
+            ->orWhereIn('team_id', FeedAccess::teamIds($user)));
     }
 
     /** @param Collection<int, Entry> $entries */
@@ -206,7 +238,13 @@ class WatchlistMatcher
             $level = $cve?->in_kev ? 'critical' : ($cve ? 'high' : 'info');
             $context = 'Watchlist: '.$item->label().($cve ? ' · '.$cve->cve_id.($cve->in_kev ? ' (actively exploited)' : '') : '');
 
-            $this->alerts->notify($item->user, 'watchlist', AlertMessage::forEntry($entry, $context, $level), 'entry:'.$entry->id);
+            $owner = $item->owner();
+
+            if ($owner === null) {
+                return;
+            }
+
+            $this->alerts->notify($owner, 'watchlist', AlertMessage::forEntry($entry, $context, $level), 'entry:'.$entry->id);
         }
     }
 

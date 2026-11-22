@@ -4,6 +4,7 @@ namespace App\Services\Alerts;
 
 use App\Jobs\FlushAlerts;
 use App\Models\AlertChannel;
+use App\Models\Team;
 use App\Models\User;
 use App\Services\Alerts\Senders\AlertSender;
 use App\Services\Alerts\Senders\DiscordSender;
@@ -12,6 +13,7 @@ use App\Services\Alerts\Senders\GotifySender;
 use App\Services\Alerts\Senders\NtfySender;
 use App\Services\Alerts\Senders\SlackSender;
 use App\Services\Alerts\Senders\TeamsSender;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -63,12 +65,12 @@ class AlertDispatcher
         return $inserted > 0;
     }
 
-    /** Send to every enabled channel of the user that subscribes to this event. */
-    public function notify(User $user, string $event, AlertMessage $message, string $dedupeKey): int
+    /** Send to every enabled channel of the user (or team) that subscribes to this event. */
+    public function notify(User|Team $owner, string $event, AlertMessage $message, string $dedupeKey): int
     {
         $sent = 0;
 
-        foreach ($user->alertChannels()->where('enabled', true)->get() as $channel) {
+        foreach ($owner->alertChannels()->where('enabled', true)->get() as $channel) {
             if ($channel->wants($event) && $this->queue($channel, $message, $dedupeKey)) {
                 $sent++;
             }
@@ -78,7 +80,7 @@ class AlertDispatcher
     }
 
     /**
-     * Send to specific channels (from a rule), only those the user owns.
+     * Send to specific channels (from a rule), only those the user may use.
      *
      * @param  array<int, int|string>  $channelIds
      */
@@ -86,13 +88,25 @@ class AlertDispatcher
     {
         $sent = 0;
 
-        foreach ($user->alertChannels()->whereKey(array_map('intval', $channelIds))->get() as $channel) {
+        foreach (self::usableChannels($user)->whereKey(array_map('intval', $channelIds))->get() as $channel) {
             if ($this->queue($channel, $message, $dedupeKey)) {
                 $sent++;
             }
         }
 
         return $sent;
+    }
+
+    /**
+     * Channels a user may send to from their rules: their own and those of teams they manage.
+     *
+     * @return Builder<AlertChannel>
+     */
+    public static function usableChannels(User $user): Builder
+    {
+        return AlertChannel::query()->where(fn ($q) => $q
+            ->where('user_id', $user->id)
+            ->orWhereIn('team_id', $user->managedTeams()->select('teams.id')));
     }
 
     /** Send immediately, bypassing dedupe and batching ("Send test"). Throws on failure. */

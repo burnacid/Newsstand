@@ -27,6 +27,9 @@
                 <flux:sidebar.item icon="adjustments-horizontal" :href="route('rules')" :current="request()->routeIs('rules')" wire:navigate>
                     {{ __('Rules') }}
                 </flux:sidebar.item>
+                <flux:sidebar.item icon="user-group" :href="route('teams.index')" :current="request()->routeIs('teams.*')" wire:navigate data-test="teams-link">
+                    {{ __('Teams') }}
+                </flux:sidebar.item>
                 <flux:sidebar.item icon="rss" :href="route('feeds.index')" :current="request()->routeIs('feeds.*')" wire:navigate>
                     {{ __('Manage feeds') }}
                 </flux:sidebar.item>

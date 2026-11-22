@@ -6,6 +6,7 @@ use App\Services\Reader\EntryQuery;
 use App\Services\Reader\EntryStates;
 use App\Services\Reader\ReaderSource;
 use App\Services\Reader\TopStories;
+use App\Services\Teams\FeedAccess;
 use App\Services\Watchlist\WatchlistMatcher;
 use Flux\Flux;
 use Illuminate\Database\Eloquent\Builder;
@@ -67,8 +68,8 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
         return match ($source->type) {
             'starred' => __('Starred'),
             'later' => __('Read later'),
-            'feed' => Auth::user()->subscriptions()->with('feed')->where('feed_id', $source->id)->first()?->displayTitle() ?? __('Feed'),
-            'folder' => Auth::user()->folders()->find($source->id)?->name ?? __('Folder'),
+            'feed' => FeedAccess::subscriptions(Auth::user())->with('feed')->where('feed_id', $source->id)->orderByRaw('user_id is null')->first()?->displayTitle() ?? __('Feed'),
+            'folder' => FeedAccess::folders(Auth::user())->find($source->id)?->name ?? __('Folder'),
             'tag' => '#'.(Auth::user()->tags()->find($source->id)?->name ?? __('Tag')),
             'top' => __('Top stories'),
             'watchlist' => __('Your watchlist'),
@@ -345,8 +346,8 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
         $source = ReaderSource::parse($this->source);
 
         $owned = match ($source->type) {
-            'feed' => Auth::user()->subscriptions()->where('feed_id', $source->id)->exists(),
-            'folder' => Auth::user()->folders()->whereKey($source->id)->exists(),
+            'feed' => FeedAccess::canRead(Auth::user(), $source->id),
+            'folder' => FeedAccess::folders(Auth::user())->whereKey($source->id)->exists(),
             'tag' => Auth::user()->tags()->whereKey($source->id)->exists(),
             default => true,
         };
@@ -551,7 +552,7 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
                         @if ($show === 'unread' && $search === '')
                             {{ __('No unread stories.') }}
                             <flux:link class="cursor-pointer" wire:click="$set('show', 'all')">{{ __('Show all') }}</flux:link>
-                        @elseif (! Auth::user()->subscriptions()->exists())
+                        @elseif (! FeedAccess::subscriptions(Auth::user())->exists())
                             <flux:link :href="route('feeds.index')" wire:navigate>{{ __('Subscribe to your first feed') }}</flux:link>
                         @endif
                     </flux:text>

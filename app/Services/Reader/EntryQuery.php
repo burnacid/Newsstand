@@ -5,6 +5,7 @@ namespace App\Services\Reader;
 use App\Models\Cve;
 use App\Models\Entry;
 use App\Models\User;
+use App\Services\Teams\FeedAccess;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Database\Query\JoinClause;
@@ -107,9 +108,7 @@ class EntryQuery
     public function unreadCounts(User $user): Collection
     {
         return Entry::query()
-            ->join('subscriptions as s', fn (JoinClause $j) => $j
-                ->on('s.feed_id', '=', 'entries.feed_id')
-                ->where('s.user_id', $user->id))
+            ->whereIn('entries.feed_id', FeedAccess::feedIds($user))
             ->leftJoin('entry_user as eu', fn (JoinClause $j) => $j
                 ->on('eu.entry_id', '=', 'entries.id')
                 ->where('eu.user_id', $user->id))
@@ -235,10 +234,7 @@ class EntryQuery
 
     public function subscribedFeedIds(User $user, ?int $folderId = null): QueryBuilder
     {
-        return DB::table('subscriptions')
-            ->select('feed_id')
-            ->where('user_id', $user->id)
-            ->when($folderId !== null, fn (QueryBuilder $q) => $q->where('folder_id', $folderId));
+        return FeedAccess::feedIds($user, $folderId);
     }
 
     public function watchlistEntryIds(User $user): QueryBuilder
@@ -246,7 +242,9 @@ class EntryQuery
         return DB::table('watchlist_hits')
             ->select('watchlist_hits.entry_id')
             ->join('watchlist_items', 'watchlist_items.id', '=', 'watchlist_hits.watchlist_item_id')
-            ->where('watchlist_items.user_id', $user->id);
+            ->where(fn (QueryBuilder $q) => $q
+                ->where('watchlist_items.user_id', $user->id)
+                ->orWhereIn('watchlist_items.team_id', FeedAccess::teamIds($user)));
     }
 
     public function taggedEntryIds(User $user, ?int $tagId = null): QueryBuilder

@@ -109,12 +109,18 @@ class KevSync
 
         $alerts = app(AlertDispatcher::class);
 
-        foreach (WatchlistItem::with('user')->where('alert_level', '!=', 'off')->get() as $item) {
+        foreach (WatchlistItem::with(['user', 'team'])->where('alert_level', '!=', 'off')->get() as $item) {
             $matching = $item->cveProducts()->whereIn('cve_id', $recent->keys())->distinct()->pluck('cve_id');
 
             foreach ($matching as $cveId) {
                 $cve = $recent[$cveId];
-                $alerts->notify($item->user, 'kev', AlertMessage::forKev($cve, $item->label()), 'kev:'.$cve->cve_id);
+                $owner = $item->owner();
+
+                if ($owner === null) {
+                    continue 2;
+                }
+
+                $alerts->notify($owner, 'kev', AlertMessage::forKev($cve, $item->label()), 'kev:'.$cve->cve_id);
             }
         }
     }

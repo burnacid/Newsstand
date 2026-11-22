@@ -14,11 +14,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  *
  * @property int $id
  * @property int $owner_id
+ * @property int|null $team_id
  * @property string $name
  * @property string|null $description
  * @property string|null $share_token
  */
-#[Fillable(['name', 'description'])]
+#[Fillable(['name', 'description', 'team_id'])]
 class Dashboard extends Model
 {
     public const ROLES = ['viewer', 'editor'];
@@ -27,6 +28,12 @@ class Dashboard extends Model
     public function owner(): BelongsTo
     {
         return $this->belongsTo(User::class, 'owner_id');
+    }
+
+    /** @return BelongsTo<Team, $this> */
+    public function team(): BelongsTo
+    {
+        return $this->belongsTo(Team::class);
     }
 
     /** @return HasMany<DashboardWidget, $this> */
@@ -51,7 +58,18 @@ class Dashboard extends Model
             return 'owner';
         }
 
-        return $this->members()->whereKey($user->id)->value('role');
+        $role = $this->members()->whereKey($user->id)->value('role');
+
+        // Shared with a team: team owners/admins edit, members view (a direct share can grant more).
+        if ($role !== 'editor' && $this->team_id !== null) {
+            $teamRole = $this->team?->roleOf($user);
+
+            if ($teamRole !== null) {
+                return in_array($teamRole, ['owner', 'admin'], true) ? 'editor' : 'viewer';
+            }
+        }
+
+        return $role;
     }
 
     public function publicUrl(): ?string

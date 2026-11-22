@@ -13,7 +13,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
  * A vendor (and optionally one of its products) a user runs.
  *
  * @property int $id
- * @property int $user_id
+ * @property int|null $user_id
+ * @property int|null $team_id
  * @property string $vendor
  * @property string|null $product
  * @property string $vendor_key
@@ -40,6 +41,12 @@ class WatchlistItem extends Model
         return ['aliases' => 'array'];
     }
 
+    /** @return BelongsTo<Team, $this> */
+    public function team(): BelongsTo
+    {
+        return $this->belongsTo(Team::class);
+    }
+
     /** @return BelongsTo<User, $this> */
     public function user(): BelongsTo
     {
@@ -50,6 +57,12 @@ class WatchlistItem extends Model
     public function entries(): BelongsToMany
     {
         return $this->belongsToMany(Entry::class, 'watchlist_hits')->withPivot(['cve_id', 'reason', 'created_at']);
+    }
+
+    /** Who gets this item's alerts: the team for team items, otherwise the user. */
+    public function owner(): User|Team|null
+    {
+        return $this->team_id ? $this->team : $this->user;
     }
 
     public function label(): string

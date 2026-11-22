@@ -84,6 +84,22 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
         return $this->belongsToMany(Dashboard::class)->withPivot('role')->withTimestamps()->orderBy('name');
     }
 
+    /** @return BelongsToMany<Team, $this> */
+    public function teams(): BelongsToMany
+    {
+        return $this->belongsToMany(Team::class)->withPivot('role')->withTimestamps()->orderBy('name');
+    }
+
+    /**
+     * Teams this user can manage (owner or admin).
+     *
+     * @return BelongsToMany<Team, $this>
+     */
+    public function managedTeams(): BelongsToMany
+    {
+        return $this->teams()->wherePivotIn('role', ['owner', 'admin']);
+    }
+
     /** @return HasMany<AlertChannel, $this> */
     public function alertChannels(): HasMany
     {

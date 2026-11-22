@@ -8,18 +8,25 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * @property int $id
- * @property int $user_id
+ * @property int|null $user_id
+ * @property int|null $team_id
  * @property int $feed_id
  * @property int|null $folder_id
  * @property string|null $custom_title
  */
-#[Fillable(['feed_id', 'folder_id', 'custom_title', 'position'])]
+#[Fillable(['feed_id', 'folder_id', 'custom_title', 'position', 'team_id'])]
 class Subscription extends Model
 {
     /** @return BelongsTo<User, $this> */
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /** @return BelongsTo<Team, $this> */
+    public function team(): BelongsTo
+    {
+        return $this->belongsTo(Team::class);
     }
 
     /** @return BelongsTo<Feed, $this> */

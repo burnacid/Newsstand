@@ -1,8 +1,10 @@
 <?php
 
 use App\Models\Dashboard;
+use App\Services\Teams\FeedAccess;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Component;
@@ -21,7 +23,19 @@ new #[Title('Dashboards')] class extends Component {
     #[Computed]
     public function shared(): Collection
     {
-        return Auth::user()->sharedDashboards()->with('owner:id,name')->withCount('widgets')->get();
+        $user = Auth::user();
+
+        // Shared directly, or with a team the user is in.
+        return Dashboard::query()
+            ->where('owner_id', '!=', $user->id)
+            ->where(fn ($q) => $q
+                ->whereIn('id', DB::table('dashboard_user')->select('dashboard_id')->where('user_id', $user->id))
+                ->orWhereIn('team_id', FeedAccess::teamIds($user)))
+            ->with(['owner:id,name', 'team:id,name'])
+            ->withCount('widgets')
+            ->orderBy('name')
+            ->get()
+            ->each(fn (Dashboard $d) => $d->setAttribute('viewer_role', $d->roleOf($user)));
     }
 
     public function create(): void
@@ -82,6 +96,9 @@ new #[Title('Dashboards')] class extends Component {
                 @if ($dashboard->members_count)
                     <flux:badge size="sm" icon="users">{{ trans_choice('Shared with :count|Shared with :count', $dashboard->members_count) }}</flux:badge>
                 @endif
+                @if ($dashboard->team_id)
+                    <flux:badge size="sm" icon="user-group">{{ __('Team') }}</flux:badge>
+                @endif
                 @if ($dashboard->share_token)
                     <flux:badge size="sm" icon="globe-alt" color="emerald">{{ __('Public link') }}</flux:badge>
                 @endif
@@ -100,9 +117,9 @@ new #[Title('Dashboards')] class extends Component {
                     <flux:icon.users class="text-zinc-500" />
                     <div class="min-w-0 flex-1">
                         <div class="font-serif text-lg font-semibold">{{ $dashboard->name }}</div>
-                        <div class="text-sm text-zinc-500">{{ __('by :name', ['name' => $dashboard->owner->name]) }} · {{ trans_choice(':count widget|:count widgets', $dashboard->widgets_count) }}</div>
+                        <div class="text-sm text-zinc-500">{{ __('by :name', ['name' => $dashboard->owner->name]) }}@if ($dashboard->team) · {{ __('team :team', ['team' => $dashboard->team->name]) }}@endif · {{ trans_choice(':count widget|:count widgets', $dashboard->widgets_count) }}</div>
                     </div>
-                    <flux:badge size="sm">{{ $dashboard->pivot->role === 'editor' ? __('Can edit') : __('Can view') }}</flux:badge>
+                    <flux:badge size="sm">{{ $dashboard->viewer_role === 'editor' ? __('Can edit') : __('Can view') }}</flux:badge>
                 </a>
             @endforeach
         </section>

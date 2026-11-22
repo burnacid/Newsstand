@@ -10,6 +10,7 @@ use App\Services\Alerts\AlertMessage;
 use App\Services\Reader\EntryQuery;
 use App\Services\Reader\EntryStates;
 use App\Services\Reader\ReaderSource;
+use App\Services\Teams\FeedAccess;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -42,23 +43,22 @@ class RuleEvaluator
         $applied = 0;
 
         foreach ($entries->groupBy('feed_id') as $feedId => $feedEntries) {
-            $subscriptions = DB::table('subscriptions')->where('feed_id', $feedId)->get(['user_id', 'folder_id']);
-
-            foreach ($subscriptions as $subscription) {
-                $rules = Rule::where('user_id', $subscription->user_id)->where('enabled', true)->orderBy('position')->get();
+            // Personal subscribers and members of teams that follow the feed.
+            foreach (FeedAccess::readersOf((int) $feedId) as $userId => $folderId) {
+                $rules = Rule::where('user_id', $userId)->where('enabled', true)->orderBy('position')->get();
 
                 if ($rules->isEmpty()) {
                     continue;
                 }
 
-                $user = User::query()->whereKey($subscription->user_id)->first();
+                $user = User::query()->whereKey($userId)->first();
 
                 if (! $user) {
                     continue;
                 }
 
                 foreach ($feedEntries as $entry) {
-                    $applied += $this->evaluate($user, $rules, $entry, $subscription->folder_id);
+                    $applied += $this->evaluate($user, $rules, $entry, $folderId);
                 }
             }
         }
@@ -86,7 +86,8 @@ class RuleEvaluator
     private function backfill(Rule $rule, int $days): int
     {
         $user = $rule->user;
-        $folders = DB::table('subscriptions')->where('user_id', $user->id)->pluck('folder_id', 'feed_id');
+        // Team folders first, so the user's own folder wins for feeds in both.
+        $folders = FeedAccess::subscriptions($user)->orderByRaw('subscriptions.user_id is not null')->pluck('folder_id', 'feed_id');
 
         $applied = 0;
 
@@ -160,7 +161,9 @@ class RuleEvaluator
             'kev' => $entry->cves->contains('in_kev', true),
             'watchlist' => $userId !== null && DB::table('watchlist_hits')
                 ->join('watchlist_items', 'watchlist_items.id', '=', 'watchlist_hits.watchlist_item_id')
-                ->where('watchlist_items.user_id', $userId)
+                ->where(fn ($q) => $q
+                    ->where('watchlist_items.user_id', $userId)
+                    ->orWhereIn('watchlist_items.team_id', DB::table('team_user')->select('team_id')->where('user_id', $userId)))
                 ->where('watchlist_hits.entry_id', $entry->id)
                 ->exists(),
             'sources' => ($entry->cluster->size ?? 1) >= max(2, (int) $value),

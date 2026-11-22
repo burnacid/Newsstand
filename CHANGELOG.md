@@ -6,6 +6,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-23
+
+### Added
+
+- **Teams** (sidebar → Teams): create a team, add existing users by email, or share an invite link (valid for
+  7 days, revocable). Roles: owner (one per team; can hand over ownership or delete the team), admin (manages
+  members, shared feeds, the team watchlist and team alert channels) and member.
+- **Shared feeds**: team admins add feeds to team folders on the team page. They appear in every member's reader and
+  sidebar as "Team · Folder". Read, starred and saved state stays personal, and members' own rules run on them.
+- **Team watchlist**: switch the Watchlist page to a team. Matches show up for every member (badge, "Your watchlist"
+  view, rule condition, "My products" filter). Team alerts go to the **team's alert channels** (Settings → Alerts,
+  switch to the team). Team owners and admins can also pick team channels in their rules.
+- **Notes on stories**: add a note under any story, visible only to you or to one of your teams. Authors edit
+  their notes; team admins can delete team notes.
+- **Team dashboards**: share a dashboard with a team from the Share dialog. Team owners and admins can edit,
+  members can view.
+
+### Changed
+
+- Feeds, folders, watchlist items and alert channels can now belong to a team instead of a user (database
+  migration `create_teams`; existing data is unchanged).
+
 ## [1.3.0] - 2026-11-23
 
 ### Added

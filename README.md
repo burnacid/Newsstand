@@ -23,6 +23,8 @@ Built with Laravel 13, Livewire 4 and Flux. Runs on PostgreSQL (recommended), My
   users as viewer or editor, or published as a public read-only link. Each viewer keeps their own read state.
 - **Alerts** to email, ntfy, Gotify, Slack, Teams or Discord: for watchlist stories, watched products newly exploited
   (CISA KEV), and rule matches. Never more than once per story per channel; bursts arrive as one summary.
+- **Teams**: shared feed folders, a team watchlist with team alert channels, team dashboards and notes on stories,
+  with owner / admin / member roles and expiring invite links. Read state stays personal.
 - **Daily digest** email, opt-in per user.
 
 ## Local development

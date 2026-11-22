@@ -1,6 +1,10 @@
 <?php
 
 use App\Actions\Feeds\Organizer;
+use App\Models\Folder;
+use App\Models\Subscription;
+use App\Services\Teams\FeedAccess;
+use App\Services\Watchlist\WatchlistMatcher;
 use App\Services\Reader\EntryQuery;
 use App\Services\Reader\ReaderSource;
 use Illuminate\Support\Collection;
@@ -31,7 +35,7 @@ new class extends Component {
     #[Computed]
     public function watching(): bool
     {
-        return Auth::user()->watchlist()->exists();
+        return WatchlistMatcher::itemsFor(Auth::user())->exists();
     }
 
     #[On('tags-changed')]
@@ -70,11 +74,23 @@ new class extends Component {
         $user = Auth::user();
         $subscriptions = Organizer::sortSubscriptions($user->subscriptions()->with('feed:id,title,url')->get());
 
+        // Team folders follow the personal ones, headed "Team · Folder".
+        $teamSubscriptions = Organizer::sortSubscriptions(
+            Subscription::query()->whereIn('team_id', FeedAccess::teamIds($user))->with('feed:id,title,url')->get()
+        );
+        $teamFolders = Folder::query()->whereIn('team_id', FeedAccess::teamIds($user))
+            ->with('team:id,name')->orderBy('position')->orderBy('name')->get();
+
+        $group = fn (Collection $subs) => fn (Folder $folder) => [
+            'folder' => $folder,
+            'heading' => $folder->team ? $folder->team->name.' · '.$folder->name : $folder->name,
+            'subscriptions' => $subs->where('folder_id', $folder->id)->values(),
+        ];
+
         return [
-            'folders' => $user->folders()->get()->map(fn ($folder) => [
-                'folder' => $folder,
-                'subscriptions' => $subscriptions->where('folder_id', $folder->id)->values(),
-            ])->filter(fn ($group) => $group['subscriptions']->isNotEmpty())->values(),
+            'folders' => $user->folders()->get()->map($group($subscriptions))
+                ->concat($teamFolders->map($group($teamSubscriptions)))
+                ->filter(fn ($group) => $group['subscriptions']->isNotEmpty())->values(),
             'unfiled' => $subscriptions->whereNull('folder_id')->values(),
         ];
     }
@@ -113,7 +129,7 @@ new class extends Component {
 
     @foreach ($this->tree['folders'] as $group)
         @php($folder = $group['folder'])
-        <flux:sidebar.group expandable :heading="$folder->name" class="mt-3 grid" wire:key="nav-folder-{{ $folder->id }}">
+        <flux:sidebar.group expandable :heading="$group['heading']" class="mt-3 grid" wire:key="nav-folder-{{ $folder->id }}">
             <flux:sidebar.item icon="folder" :href="$link('folder:'.$folder->id)" :current="$current === 'folder:'.$folder->id"
                 :badge="$this->badge($group['subscriptions']->sum(fn ($s) => $counts[$s->feed_id] ?? 0))" wire:navigate>
                 {{ __('All in :folder', ['folder' => $folder->name]) }}

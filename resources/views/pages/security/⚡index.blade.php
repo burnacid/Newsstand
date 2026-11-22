@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Cve;
+use App\Services\Teams\FeedAccess;
 use App\Services\Watchlist\WatchlistMatcher;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -43,7 +44,7 @@ new #[Title('Vulnerabilities')] class extends Component {
         // Stories this user can see that mention each CVE, within the period.
         $mentions = DB::table('cve_entry')
             ->join('entries', 'entries.id', '=', 'cve_entry.entry_id')
-            ->whereIn('entries.feed_id', DB::table('subscriptions')->select('feed_id')->where('user_id', $user->id))
+            ->whereIn('entries.feed_id', FeedAccess::feedIds($user))
             ->where('entries.published_at', '>=', $since)
             ->groupBy('cve_entry.cve_id')
             ->selectRaw('cve_entry.cve_id, count(*) as stories, max(entries.published_at) as last_mentioned_at');
@@ -90,7 +91,7 @@ new #[Title('Vulnerabilities')] class extends Component {
         $row = DB::table('cves')
             ->join('cve_entry', 'cve_entry.cve_id', '=', 'cves.id')
             ->join('entries', 'entries.id', '=', 'cve_entry.entry_id')
-            ->whereIn('entries.feed_id', DB::table('subscriptions')->select('feed_id')->where('user_id', $user->id))
+            ->whereIn('entries.feed_id', FeedAccess::feedIds($user))
             ->where('entries.published_at', '>=', now()->subDays(7))
             ->selectRaw('count(distinct cves.id) as mentioned')
             ->selectRaw('count(distinct case when cves.in_kev = ? then cves.id end) as exploited', [true])

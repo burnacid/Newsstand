@@ -2,15 +2,19 @@
 
 use App\Models\Cve;
 use App\Models\CveProduct;
+use App\Models\Team;
+use App\Models\User;
 use App\Models\WatchlistItem;
 use App\Services\Watchlist\WatchlistMatcher;
 use App\Support\ProductName;
 use Flux\Flux;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
+use Livewire\Attributes\Url;
 use Livewire\Component;
 
 new #[Title('Watchlist')] class extends Component {
@@ -22,10 +26,51 @@ new #[Title('Watchlist')] class extends Component {
 
     public string $aliases = '';
 
+    /** '' for the personal watchlist, or a team id. */
+    #[Url(as: 'team')]
+    public string $teamId = '';
+
+    /** Teams the user belongs to, for the switcher. */
+    #[Computed]
+    public function teams(): Collection
+    {
+        return Auth::user()->teams()->get();
+    }
+
+    #[Computed]
+    public function team(): ?Team
+    {
+        return $this->teamId !== '' ? $this->teams->firstWhere('id', (int) $this->teamId) : null;
+    }
+
+    /** Personal list, or a team's list when one is picked (members read, admins edit). */
+    #[Computed]
+    public function canManage(): bool
+    {
+        return $this->team === null || $this->team->isAdmin(Auth::user());
+    }
+
+    /** @return HasMany<WatchlistItem, covariant User|Team> */
+    private function scope(): HasMany
+    {
+        return $this->team ? $this->team->watchlist() : Auth::user()->watchlist();
+    }
+
+    private function authorizeManage(): void
+    {
+        abort_unless($this->canManage, 403);
+    }
+
+    public function updatedTeamId(): void
+    {
+        $this->cancelEdit();
+        unset($this->team, $this->canManage, $this->items, $this->popular, $this->hasChannels);
+    }
+
     #[Computed]
     public function items(): Collection
     {
-        $items = Auth::user()->watchlist()->get();
+        $items = $this->scope()->get();
 
         $hits = DB::table('watchlist_hits')
             ->join('entries', 'entries.id', '=', 'watchlist_hits.entry_id')
@@ -74,7 +119,7 @@ new #[Title('Watchlist')] class extends Component {
     #[Computed]
     public function popular(): Collection
     {
-        $watched = Auth::user()->watchlist()->pluck('vendor_key')->all();
+        $watched = $this->scope()->pluck('vendor_key')->all();
 
         return Cve::query()
             ->where('in_kev', true)->whereNotNull('kev_vendor')
@@ -87,6 +132,8 @@ new #[Title('Watchlist')] class extends Component {
 
     public function save(WatchlistMatcher $matcher): void
     {
+        $this->authorizeManage();
+
         $this->validate([
             'vendor' => ['required', 'string', 'max:100'],
             'product' => ['nullable', 'string', 'max:100'],
@@ -99,26 +146,26 @@ new #[Title('Watchlist')] class extends Component {
             'aliases' => collect(explode(',', $this->aliases))->map(fn ($a) => trim($a))->filter(fn ($a) => mb_strlen($a) >= 2)->unique()->values()->all() ?: null,
         ];
 
-        $duplicate = Auth::user()->watchlist()
+        $duplicate = $this->scope()
             ->where('vendor_key', ProductName::key($data['vendor']))
             ->where('product_key', $data['product'] ? ProductName::key($data['product']) : null)
             ->when($this->editingId, fn ($q) => $q->whereKeyNot($this->editingId))
             ->exists();
 
         if ($duplicate) {
-            $this->addError('vendor', __('That is already on your watchlist.'));
+            $this->addError('vendor', __('That is already on this watchlist.'));
 
             return;
         }
 
         if ($this->editingId) {
-            $item = Auth::user()->watchlist()->findOrFail($this->editingId);
+            $item = $this->scope()->findOrFail($this->editingId);
             $item->update($data);
             // Matches were based on the old name; start over.
             DB::table('watchlist_hits')->where('watchlist_item_id', $item->id)->delete();
             Flux::modal('edit-item')->close();
         } else {
-            $item = Auth::user()->watchlist()->create($data);
+            $item = $this->scope()->create($data);
         }
 
         $found = $matcher->matchItem($item);
@@ -139,7 +186,9 @@ new #[Title('Watchlist')] class extends Component {
 
     public function edit(int $id): void
     {
-        $item = Auth::user()->watchlist()->findOrFail($id);
+        $this->authorizeManage();
+
+        $item = $this->scope()->findOrFail($id);
 
         $this->editingId = $item->id;
         $this->vendor = $item->vendor;
@@ -157,8 +206,10 @@ new #[Title('Watchlist')] class extends Component {
 
     public function setAlertLevel(int $id, string $level): void
     {
+        $this->authorizeManage();
+
         if (in_array($level, ['off', 'any', 'cve', 'kev'], true)) {
-            Auth::user()->watchlist()->findOrFail($id)->update(['alert_level' => $level]);
+            $this->scope()->findOrFail($id)->update(['alert_level' => $level]);
             unset($this->items);
         }
     }
@@ -166,12 +217,14 @@ new #[Title('Watchlist')] class extends Component {
     #[Computed]
     public function hasChannels(): bool
     {
-        return Auth::user()->alertChannels()->where('enabled', true)->exists();
+        return ($this->team ?? Auth::user())->alertChannels()->where('enabled', true)->exists();
     }
 
     public function remove(int $id): void
     {
-        Auth::user()->watchlist()->findOrFail($id)->delete();
+        $this->authorizeManage();
+
+        $this->scope()->findOrFail($id)->delete();
         unset($this->items, $this->popular);
         $this->dispatch('unread-changed');
     }
@@ -183,13 +236,31 @@ new #[Title('Watchlist')] class extends Component {
             <flux:heading size="xl" level="1">{{ __('Watchlist') }}</flux:heading>
             <flux:text class="mt-1 max-w-xl">{{ __('The vendors and products you run. Newsstand flags stories and vulnerabilities that affect them: through the CVEs they mention (NVD and CISA product data) or by name.') }}</flux:text>
         </div>
-        @if ($this->items->isNotEmpty())
-            <flux:button icon="eye" :href="route('reader', ['s' => 'watchlist'])" wire:navigate>{{ __('Show matching stories') }}</flux:button>
-        @endif
+        <div class="flex flex-wrap items-center gap-2">
+            @if ($this->teams->isNotEmpty())
+                <flux:select size="sm" class="!w-48" wire:model.live="teamId" data-test="watch-team">
+                    <flux:select.option value="">{{ __('My watchlist') }}</flux:select.option>
+                    @foreach ($this->teams as $t)
+                        <flux:select.option value="{{ $t->id }}">{{ __('Team: :name', ['name' => $t->name]) }}</flux:select.option>
+                    @endforeach
+                </flux:select>
+            @endif
+            @if ($this->items->isNotEmpty())
+                <flux:button icon="eye" :href="route('reader', ['s' => 'watchlist'])" wire:navigate>{{ __('Show matching stories') }}</flux:button>
+            @endif
+        </div>
     </div>
 
+    @if ($this->team && ! $this->canManage)
+        <flux:callout icon="user-group" :heading="__('Shared by :team', ['team' => $this->team->name])">
+            <flux:callout.text>{{ __('Everyone in the team sees these matches. Team owners and admins manage the list.') }}</flux:callout.text>
+        </flux:callout>
+    @endif
+
+    @if ($this->canManage)
+
     <flux:card class="space-y-4">
-        <flux:heading>{{ __('Add to your watchlist') }}</flux:heading>
+        <flux:heading>{{ $this->team ? __('Add to the :team watchlist', ['team' => $this->team->name]) : __('Add to your watchlist') }}</flux:heading>
         <form wire:submit="save" class="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-start">
             <div>
                 <flux:input wire:model.live.debounce.400ms="vendor" :placeholder="__('Vendor, e.g. Fortinet')" list="watch-vendors" autocomplete="off" data-test="watch-vendor" />
@@ -224,11 +295,12 @@ new #[Title('Watchlist')] class extends Component {
             </div>
         @endif
     </flux:card>
+    @endif
 
     @if ($this->items->contains(fn ($i) => $i->alert_level !== 'off') && ! $this->hasChannels)
         <flux:callout icon="bell-slash" variant="warning" :heading="__('Alerts are on, but there’s nowhere to send them')">
             <flux:callout.text>
-                <flux:link :href="route('alerts.edit')" wire:navigate>{{ __('Add an alert channel') }}</flux:link>
+                <flux:link :href="route('alerts.edit', $this->team ? ['team' => $this->team->id] : [])" wire:navigate>{{ __('Add an alert channel') }}</flux:link>
                 {{ __('(email, ntfy, Gotify, Slack, Teams or Discord).') }}
             </flux:callout.text>
         </flux:callout>
@@ -247,6 +319,7 @@ new #[Title('Watchlist')] class extends Component {
                         @if ($item->aliases)<span>{{ __('also: :aliases', ['aliases' => implode(', ', $item->aliases)]) }}</span>@endif
                     </div>
                 </div>
+                @if ($this->canManage)
                 <flux:select size="sm" class="!w-44 shrink-0" wire:change="setAlertLevel({{ $item->id }}, $event.target.value)" data-test="alert-level-{{ $item->id }}"
                     :tooltip="__('Alerts for this item')">
                     <flux:select.option value="off" :selected="$item->alert_level === 'off'">{{ __('No alerts') }}</flux:select.option>
@@ -256,6 +329,7 @@ new #[Title('Watchlist')] class extends Component {
                 </flux:select>
                 <flux:button size="sm" variant="subtle" icon="pencil" wire:click="edit({{ $item->id }})" :tooltip="__('Edit')" />
                 <flux:button size="sm" variant="subtle" icon="trash" wire:click="remove({{ $item->id }})" wire:confirm="{{ __('Stop watching :name?', ['name' => $item->label()]) }}" :tooltip="__('Remove')" />
+                @endif
             </div>
         @empty
             <div class="rounded-xl border border-dashed border-zinc-300 p-10 text-center dark:border-zinc-700">

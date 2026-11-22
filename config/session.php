@@ -171,7 +171,7 @@ return [
 
     // true | false | "auto" (secure only when the request came over HTTPS; see ResolveSecureSessionCookie).
     'secure' => match ($secure = env('SESSION_SECURE_COOKIE', 'auto')) {
-        'auto', null, '' => 'auto',
+        'auto', '' => 'auto',
         default => (bool) $secure,
     },
 

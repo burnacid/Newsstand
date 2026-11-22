@@ -3,6 +3,8 @@
 use App\Exceptions\UnsafeUrlException;
 use App\Models\Alert;
 use App\Models\AlertChannel;
+use App\Models\Team;
+use App\Models\User;
 use App\Services\Alerts\AlertDispatcher;
 use App\Services\Alerts\AlertMessage;
 use App\Services\Alerts\Senders\WebhookSender;
@@ -15,6 +17,7 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
+use Livewire\Attributes\Url;
 use Livewire\Component;
 
 new #[Title('Alerts')] class extends Component {
@@ -33,17 +36,44 @@ new #[Title('Alerts')] class extends Component {
     /** @var list<string> */
     public array $events = ['watchlist', 'kev'];
 
+    /** '' for personal channels, or the id of a team the user manages. */
+    #[Url(as: 'team')]
+    public string $teamId = '';
+
+    /** Teams whose channels this user may manage (owner or admin). */
+    #[Computed]
+    public function managedTeams(): Collection
+    {
+        return Auth::user()->managedTeams()->get();
+    }
+
+    #[Computed]
+    public function team(): ?Team
+    {
+        return $this->teamId !== '' ? $this->managedTeams->firstWhere('id', (int) $this->teamId) : null;
+    }
+
+    private function owner(): User|Team
+    {
+        return $this->team ?? Auth::user();
+    }
+
+    public function updatedTeamId(): void
+    {
+        unset($this->team, $this->channels, $this->recent);
+    }
+
     #[Computed]
     public function channels(): Collection
     {
-        return Auth::user()->alertChannels()->withCount(['alerts as sent_count' => fn ($q) => $q->where('status', 'sent')])->get();
+        return $this->owner()->alertChannels()->withCount(['alerts as sent_count' => fn ($q) => $q->where('status', 'sent')])->get();
     }
 
     #[Computed]
     public function recent(): Collection
     {
         return Alert::query()
-            ->whereIn('alert_channel_id', Auth::user()->alertChannels()->select('id'))
+            ->whereIn('alert_channel_id', $this->owner()->alertChannels()->select('id'))
             ->with('channel:id,name,type')
             ->latest('id')
             ->limit(15)
@@ -128,7 +158,7 @@ new #[Title('Alerts')] class extends Component {
 
         $data = ['type' => $this->type, 'name' => $this->name, 'config' => $config, 'events' => array_values($this->events)];
 
-        $existing ? $existing->update([...$data, 'last_error' => null]) : Auth::user()->alertChannels()->create($data);
+        $existing ? $existing->update([...$data, 'last_error' => null]) : $this->owner()->alertChannels()->create($data);
 
         Flux::modal('channel')->close();
         unset($this->channels);
@@ -166,7 +196,7 @@ new #[Title('Alerts')] class extends Component {
 
     private function find(int $id): AlertChannel
     {
-        return Auth::user()->alertChannels()->findOrFail($id);
+        return $this->owner()->alertChannels()->findOrFail($id);
     }
 
     private function applyDefaults(): void
@@ -191,7 +221,20 @@ new #[Title('Alerts')] class extends Component {
 
     <x-pages::settings.layout :heading="__('Alerts')" :subheading="__('Get told right away when something on your watchlist is in the news or gets exploited, or when a rule says so.')">
         <div class="space-y-6">
-            <flux:button icon="plus" wire:click="create" data-test="add-channel">{{ __('Add a channel') }}</flux:button>
+            <div class="flex flex-wrap items-center gap-2">
+                <flux:button icon="plus" wire:click="create" data-test="add-channel">{{ __('Add a channel') }}</flux:button>
+                @if ($this->managedTeams->isNotEmpty())
+                    <flux:select size="sm" class="!w-56" wire:model.live="teamId" data-test="channel-team">
+                        <flux:select.option value="">{{ __('My channels') }}</flux:select.option>
+                        @foreach ($this->managedTeams as $t)
+                            <flux:select.option value="{{ $t->id }}">{{ __('Team: :name', ['name' => $t->name]) }}</flux:select.option>
+                        @endforeach
+                    </flux:select>
+                @endif
+            </div>
+            @if ($this->team)
+                <flux:text class="text-sm">{{ __('Channels of :team receive alerts for the team watchlist. Team owners and admins can also use them in their rules.', ['team' => $this->team->name]) }}</flux:text>
+            @endif
 
             <div class="space-y-2">
                 @forelse ($this->channels as $channel)

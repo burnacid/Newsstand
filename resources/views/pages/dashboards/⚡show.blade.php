@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Services\Dashboards\WidgetContent;
 use App\Services\Reader\EntryQuery;
 use App\Services\Reader\EntryStates;
+use App\Services\Teams\FeedAccess;
 use Flux\Flux;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
@@ -112,9 +113,10 @@ new #[Title('Dashboard')] class extends Component {
         $owner = $this->dashboard->owner;
 
         return [
-            'feeds' => $owner->subscriptions()->with('feed:id,title,url')->get()
+            'feeds' => FeedAccess::subscriptions($owner)->with('feed:id,title,url')->orderByRaw('user_id is null')->get()->unique('feed_id')
                 ->map(fn ($s) => ['id' => $s->feed_id, 'title' => $s->displayTitle()])->sortBy('title', SORT_NATURAL | SORT_FLAG_CASE)->values(),
-            'folders' => $owner->folders()->get(['id', 'name']),
+            'folders' => FeedAccess::folders($owner)->with('team:id,name')->get(['id', 'name', 'team_id'])
+                ->each(fn ($folder) => $folder->setAttribute('name', $folder->team ? $folder->team->name.' · '.$folder->name : $folder->name)),
             'tags' => $owner->tags()->get(['id', 'name']),
         ];
     }
@@ -304,6 +306,26 @@ new #[Title('Dashboard')] class extends Component {
         $this->reset('shareEmail');
         unset($this->members);
         Flux::toast(variant: 'success', text: __('Shared with :name.', ['name' => $user->name]));
+    }
+
+    /** Teams the owner belongs to, for sharing with a whole team. */
+    #[Computed]
+    public function ownerTeams(): Collection
+    {
+        return Auth::user()->teams()->get();
+    }
+
+    public function shareWithTeam(string $teamId): void
+    {
+        $this->authorize('manage', $this->dashboard);
+
+        $team = $teamId === '' ? null : $this->ownerTeams->firstWhere('id', (int) $teamId);
+        $this->dashboard->forceFill(['team_id' => $team?->id])->save();
+        unset($this->dashboard);
+
+        Flux::toast(variant: 'success', text: $team
+            ? __('Shared with everyone in :team.', ['team' => $team->name])
+            : __('No longer shared with a team.'));
     }
 
     public function changeRole(int $userId, string $role): void
@@ -591,6 +613,18 @@ new #[Title('Dashboard')] class extends Component {
                     </flux:select>
                     <flux:button type="submit" variant="primary" data-test="share-submit">{{ __('Share') }}</flux:button>
                 </form>
+
+                @if ($this->ownerTeams->isNotEmpty())
+                    <div class="space-y-1">
+                        <flux:select :label="__('Share with a team')" wire:change="shareWithTeam($event.target.value)" data-test="share-team">
+                            <flux:select.option value="" :selected="$dashboard->team_id === null">{{ __('No team') }}</flux:select.option>
+                            @foreach ($this->ownerTeams as $t)
+                                <flux:select.option value="{{ $t->id }}" :selected="$dashboard->team_id === $t->id">{{ $t->name }}</flux:select.option>
+                            @endforeach
+                        </flux:select>
+                        <flux:text class="text-xs">{{ __('Team owners and admins can edit, members can view.') }}</flux:text>
+                    </div>
+                @endif
 
                 @if ($this->members->isNotEmpty())
                     <div class="-mx-2 space-y-0.5">
