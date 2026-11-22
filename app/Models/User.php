@@ -84,6 +84,12 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
         return $this->belongsToMany(Dashboard::class)->withPivot('role')->withTimestamps()->orderBy('name');
     }
 
+    /** @return HasMany<AlertChannel, $this> */
+    public function alertChannels(): HasMany
+    {
+        return $this->hasMany(AlertChannel::class)->orderBy('name');
+    }
+
     /** @return HasMany<WatchlistItem, $this> */
     public function watchlist(): HasMany
     {

@@ -19,10 +19,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
  * @property string $vendor_key
  * @property string|null $product_key
  * @property list<string>|null $aliases
+ * @property string $alert_level off | any | cve | kev
  */
-#[Fillable(['vendor', 'product', 'aliases'])]
+#[Fillable(['vendor', 'product', 'aliases', 'alert_level'])]
 class WatchlistItem extends Model
 {
+    /** Matches the column default, so fresh models agree with the database. */
+    protected $attributes = ['alert_level' => 'off'];
+
     protected static function booted(): void
     {
         static::saving(function (WatchlistItem $item) {

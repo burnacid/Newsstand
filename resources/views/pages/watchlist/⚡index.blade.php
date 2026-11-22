@@ -155,6 +155,20 @@ new #[Title('Watchlist')] class extends Component {
         $this->reset('editingId', 'vendor', 'product', 'aliases');
     }
 
+    public function setAlertLevel(int $id, string $level): void
+    {
+        if (in_array($level, ['off', 'any', 'cve', 'kev'], true)) {
+            Auth::user()->watchlist()->findOrFail($id)->update(['alert_level' => $level]);
+            unset($this->items);
+        }
+    }
+
+    #[Computed]
+    public function hasChannels(): bool
+    {
+        return Auth::user()->alertChannels()->where('enabled', true)->exists();
+    }
+
     public function remove(int $id): void
     {
         Auth::user()->watchlist()->findOrFail($id)->delete();
@@ -211,6 +225,15 @@ new #[Title('Watchlist')] class extends Component {
         @endif
     </flux:card>
 
+    @if ($this->items->contains(fn ($i) => $i->alert_level !== 'off') && ! $this->hasChannels)
+        <flux:callout icon="bell-slash" variant="warning" :heading="__('Alerts are on, but there’s nowhere to send them')">
+            <flux:callout.text>
+                <flux:link :href="route('alerts.edit')" wire:navigate>{{ __('Add an alert channel') }}</flux:link>
+                {{ __('(email, ntfy, Gotify, Slack, Teams or Discord).') }}
+            </flux:callout.text>
+        </flux:callout>
+    @endif
+
     <div class="space-y-2">
         @forelse ($this->items as $item)
             <div class="flex items-center gap-4 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-800/60" wire:key="watch-{{ $item->id }}">
@@ -224,6 +247,13 @@ new #[Title('Watchlist')] class extends Component {
                         @if ($item->aliases)<span>{{ __('also: :aliases', ['aliases' => implode(', ', $item->aliases)]) }}</span>@endif
                     </div>
                 </div>
+                <flux:select size="sm" class="!w-44 shrink-0" wire:change="setAlertLevel({{ $item->id }}, $event.target.value)" data-test="alert-level-{{ $item->id }}"
+                    :tooltip="__('Alerts for this item')">
+                    <flux:select.option value="off" :selected="$item->alert_level === 'off'">{{ __('No alerts') }}</flux:select.option>
+                    <flux:select.option value="any" :selected="$item->alert_level === 'any'">{{ __('Alert: every story') }}</flux:select.option>
+                    <flux:select.option value="cve" :selected="$item->alert_level === 'cve'">{{ __('Alert: stories with a CVE') }}</flux:select.option>
+                    <flux:select.option value="kev" :selected="$item->alert_level === 'kev'">{{ __('Alert: actively exploited') }}</flux:select.option>
+                </flux:select>
                 <flux:button size="sm" variant="subtle" icon="pencil" wire:click="edit({{ $item->id }})" :tooltip="__('Edit')" />
                 <flux:button size="sm" variant="subtle" icon="trash" wire:click="remove({{ $item->id }})" wire:confirm="{{ __('Stop watching :name?', ['name' => $item->label()]) }}" :tooltip="__('Remove')" />
             </div>

@@ -34,6 +34,9 @@ new #[Title('Rules')] class extends Component {
 
     public bool $mute = false;
 
+    /** @var list<string> alert channel ids to notify */
+    public array $alertChannels = [];
+
     public bool $applyToRecent = true;
 
     /** Ready-made rules for the security use case. */
@@ -61,6 +64,12 @@ new #[Title('Rules')] class extends Component {
     public function folders(): Collection
     {
         return Auth::user()->folders()->get();
+    }
+
+    #[Computed]
+    public function channels(): Collection
+    {
+        return Auth::user()->alertChannels()->get(['id', 'name', 'type', 'enabled']);
     }
 
     #[Computed]
@@ -94,6 +103,7 @@ new #[Title('Rules')] class extends Component {
         $this->later = (bool) ($rule->actions['later'] ?? false);
         $this->markRead = (bool) ($rule->actions['read'] ?? false);
         $this->mute = (bool) ($rule->actions['mute'] ?? false);
+        $this->alertChannels = array_map('strval', $rule->actions['alert'] ?? []);
         $this->applyToRecent = false;
 
         Flux::modal('rule-editor')->show();
@@ -199,6 +209,8 @@ new #[Title('Rules')] class extends Component {
             'later' => $this->later,
             'read' => $this->markRead,
             'mute' => $this->mute,
+            // Only channels this user owns.
+            'alert' => $this->channels->pluck('id')->intersect(array_map('intval', $this->alertChannels))->values()->all() ?: null,
         ]);
 
         if ($actions === []) {
@@ -235,7 +247,7 @@ new #[Title('Rules')] class extends Component {
 
     private function resetEditor(): void
     {
-        $this->reset('editingId', 'name', 'match', 'conditions', 'highlight', 'tagId', 'star', 'later', 'markRead', 'mute');
+        $this->reset('editingId', 'name', 'match', 'conditions', 'highlight', 'tagId', 'star', 'later', 'markRead', 'mute', 'alertChannels');
         $this->applyToRecent = true;
         $this->resetErrorBag();
     }
@@ -270,6 +282,7 @@ new #[Title('Rules')] class extends Component {
             ! empty($a['later']) ? __('read later') : null,
             ! empty($a['read']) ? __('mark read') : null,
             ! empty($a['mute']) ? __('mute') : null,
+            ! empty($a['alert']) ? __('alert') : null,
         ])->filter()->implode(', ');
 
         return "{$conditions} → {$actions}";
@@ -422,6 +435,14 @@ new #[Title('Rules')] class extends Component {
                     <flux:checkbox wire:model="later" :label="__('Save for later')" />
                     <flux:checkbox wire:model="markRead" :label="__('Mark as read')" />
                     <flux:checkbox wire:model="mute" :label="__('Mute (hide from lists)')" />
+                </div>
+                <div class="space-y-2">
+                    <flux:text size="sm" class="font-medium text-zinc-700 dark:text-zinc-300">{{ __('Send alert to') }}</flux:text>
+                    @forelse ($this->channels as $channel)
+                        <flux:checkbox wire:model="alertChannels" :value="(string) $channel->id" :label="$channel->name.' ('.\App\Models\AlertChannel::label($channel->type).')'" data-test="rule-alert-{{ $channel->id }}" />
+                    @empty
+                        <flux:text size="sm"><flux:link :href="route('alerts.edit')" wire:navigate>{{ __('Add an alert channel') }}</flux:link> {{ __('to get notified when this rule matches.') }}</flux:text>
+                    @endforelse
                 </div>
                 <flux:error name="actions" />
             </div>

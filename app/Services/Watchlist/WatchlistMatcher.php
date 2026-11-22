@@ -6,6 +6,8 @@ use App\Models\CveProduct;
 use App\Models\Entry;
 use App\Models\User;
 use App\Models\WatchlistItem;
+use App\Services\Alerts\AlertDispatcher;
+use App\Services\Alerts\AlertMessage;
 use App\Services\Reader\EntryQuery;
 use App\Services\Reader\ReaderSource;
 use Illuminate\Support\Collection;
@@ -19,7 +21,10 @@ use Illuminate\Support\Facades\DB;
  */
 class WatchlistMatcher
 {
-    public function __construct(private EntryQuery $entries) {}
+    public function __construct(
+        private EntryQuery $entries,
+        private AlertDispatcher $alerts,
+    ) {}
 
     /**
      * Match stories against the watchlists of everyone subscribed to their feeds.
@@ -27,13 +32,13 @@ class WatchlistMatcher
      * @param  list<int>  $entryIds
      * @return int new hits
      */
-    public function matchEntries(array $entryIds): int
+    public function matchEntries(array $entryIds, bool $notify = true): int
     {
         if ($entryIds === []) {
             return 0;
         }
 
-        $entries = Entry::with('cves:id')->whereKey($entryIds)->get();
+        $entries = Entry::with(['cves:id,cve_id,in_kev,cvss_score', 'feed:id,title,url'])->whereKey($entryIds)->get();
         $new = 0;
 
         foreach ($entries->groupBy('feed_id') as $feedId => $feedEntries) {
@@ -42,7 +47,7 @@ class WatchlistMatcher
                 ->get();
 
             foreach ($items as $item) {
-                $new += $this->record($item, $feedEntries);
+                $new += $this->record($item, $feedEntries, $notify);
             }
         }
 
@@ -60,11 +65,12 @@ class WatchlistMatcher
 
         $this->entries->for($item->user, ReaderSource::all())
             ->where('entries.published_at', '>=', now()->subDays($days))
-            ->with('cves:id')
+            ->with('cves:id,cve_id,in_kev,cvss_score')
             ->reorder()
             ->orderBy('entries.id')
             ->chunk(300, function (Collection $entries) use ($item, &$new) {
-                $new += $this->record($item, $entries);
+                // Backfill: no alerts for stories the user may already have seen.
+                $new += $this->record($item, $entries, notify: false);
             });
 
         return $new;
@@ -115,7 +121,7 @@ class WatchlistMatcher
     }
 
     /** @param Collection<int, Entry> $entries */
-    private function record(WatchlistItem $item, Collection $entries): int
+    private function record(WatchlistItem $item, Collection $entries, bool $notify): int
     {
         $cveIds = $entries->flatMap(fn (Entry $e) => $e->cves->pluck('id'))->unique()->values();
 
@@ -137,7 +143,71 @@ class WatchlistMatcher
             }
         }
 
-        return $rows === [] ? 0 : DB::table('watchlist_hits')->insertOrIgnore($rows);
+        if ($rows === []) {
+            return 0;
+        }
+
+        // entry_id => reason of hits we already had.
+        $existing = DB::table('watchlist_hits')->where('watchlist_item_id', $item->id)
+            ->whereIn('entry_id', array_column($rows, 'entry_id'))->pluck('reason', 'entry_id');
+
+        // New hits, plus name matches that now also match through a CVE (product data often arrives later).
+        $new = array_values(array_filter($rows, fn (array $row) => ! $existing->has($row['entry_id'])
+            || ($existing[$row['entry_id']] === 'text' && $row['reason'] === 'cve')));
+
+        foreach ($new as $row) {
+            DB::table('watchlist_hits')->updateOrInsert(
+                ['watchlist_item_id' => $row['watchlist_item_id'], 'entry_id' => $row['entry_id']],
+                ['cve_id' => $row['cve_id'], 'reason' => $row['reason'], 'created_at' => $row['created_at']],
+            );
+        }
+
+        if ($notify) {
+            $this->alert($item, $entries->keyBy('id'), $new);
+        }
+
+        return count($new);
+    }
+
+    /**
+     * Alert the owner about new hits, as far as the item's alert level asks:
+     * any (every story), cve (stories with an affecting CVE), kev (actively exploited only).
+     *
+     * @param  Collection<int, Entry>  $entries
+     * @param  list<array<string, mixed>>  $hits
+     */
+    private function alert(WatchlistItem $item, Collection $entries, array $hits): void
+    {
+        if ($item->alert_level === 'off' || $hits === []) {
+            return;
+        }
+
+        $cutoff = now()->subDays(config('newsstand.alerts.max_story_age_days'));
+
+        foreach ($hits as $hit) {
+            $entry = $entries->get($hit['entry_id']);
+            $cve = $hit['cve_id'] ? $entry?->cves->firstWhere('id', $hit['cve_id']) : null;
+
+            if (! $entry || $entry->published_at->lessThan($cutoff)) {
+                continue;
+            }
+
+            $wanted = match ($item->alert_level) {
+                'any' => true,
+                'cve' => $cve !== null,
+                'kev' => (bool) $cve?->in_kev,
+                default => false,
+            };
+
+            if (! $wanted) {
+                continue;
+            }
+
+            $level = $cve?->in_kev ? 'critical' : ($cve ? 'high' : 'info');
+            $context = 'Watchlist: '.$item->label().($cve ? ' · '.$cve->cve_id.($cve->in_kev ? ' (actively exploited)' : '') : '');
+
+            $this->alerts->notify($item->user, 'watchlist', AlertMessage::forEntry($entry, $context, $level), 'entry:'.$entry->id);
+        }
     }
 
     /** Whole-word, case-insensitive match on any of the item's terms. */

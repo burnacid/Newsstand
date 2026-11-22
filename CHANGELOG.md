@@ -6,6 +6,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-23
+
+### Added
+
+- **Alerts** (Settings → Alerts): send alerts to email, ntfy, Gotify, Slack, Microsoft Teams (Workflows webhook) or
+  Discord. Each channel has a test button, an on/off switch, and shows its last error. Webhook URLs and tokens are
+  stored encrypted and never shown again.
+- What triggers an alert:
+  - **Watchlist**: per item, choose no alerts, every story, stories with a CVE, or actively exploited only.
+  - **CISA KEV**: a product on your watchlist was just added to the Known Exploited Vulnerabilities list.
+  - **Rules**: a new "Send alert to" action.
+- Recent alerts and their delivery status on the Alerts page.
+- Administration → Settings: allow alert channels on the local network (for a self-hosted ntfy or Gotify).
+
+### Safety
+
+- Each story or CVE is sent at most once per channel; more than 3 alerts within 30 seconds arrive as one summary.
+- No alerts for back-fills (adding a watchlist item, saving a rule over the last 30 days), for stories older than
+  7 days, or for old KEV entries on a first import.
+- Alert destinations are checked like feed URLs (no private addresses unless an admin allows them; no redirects).
+- Discord alerts can't mention @everyone from feed content.
+
 ## [1.2.0] - 2026-11-23
 
 ### Added
@@ -104,7 +126,8 @@ First release.
 - Server-side fetches are protected against SSRF (private and reserved addresses refused, including after redirects).
 - The test suite refuses to run against a non-test database, so tests can never wipe real data.
 
-[Unreleased]: https://github.com/burnacid/Newsstand/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/burnacid/Newsstand/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/burnacid/Newsstand/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/burnacid/Newsstand/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/burnacid/Newsstand/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/burnacid/Newsstand/compare/v1.0.0...v1.0.1

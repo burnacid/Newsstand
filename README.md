@@ -21,6 +21,8 @@ Built with Laravel 13, Livewire 4 and Flux. Runs on PostgreSQL (recommended), My
   exploited and critical vulnerabilities.
 - **Dashboards**: widget pages (feeds, folders, searches, tags, top stories, vulnerabilities), shared with other
   users as viewer or editor, or published as a public read-only link. Each viewer keeps their own read state.
+- **Alerts** to email, ntfy, Gotify, Slack, Teams or Discord: for watchlist stories, watched products newly exploited
+  (CISA KEV), and rule matches. Never more than once per story per channel; bursts arrive as one summary.
 - **Daily digest** email, opt-in per user.
 
 ## Local development
@@ -117,6 +119,7 @@ All Newsstand settings are in `config/newsstand.php`, most with an environment v
 | `NEWSSTAND_UNREAD_MAX_AGE_DAYS` | `30` | Older stories never count as unread |
 | `NVD_API_KEY` | none | Higher NVD rate limits for CVSS lookups ([request one](https://nvd.nist.gov/developers/request-an-api-key)) |
 | `NEWSSTAND_KEV_URL` | CISA's official GitHub copy | Source of the Known Exploited Vulnerabilities catalog |
+| `NEWSSTAND_ALERTS_ALLOW_PRIVATE` | `false` | Allow alert channels on LAN addresses (self-hosted ntfy/Gotify); also under Administration → Settings |
 | `APP_TIMEZONE` | `UTC` | Used for digest delivery times |
 | `TRUSTED_PROXIES` | none | Reverse proxy addresses, or `*` |
 

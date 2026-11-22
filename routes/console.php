@@ -6,6 +6,7 @@ use App\Jobs\FetchFeed;
 use App\Jobs\ProcessEntrySignals;
 use App\Jobs\ScanArticleForCves;
 use App\Mail\DailyDigest;
+use App\Models\Alert;
 use App\Models\Cve;
 use App\Models\Entry;
 use App\Models\Feed;
@@ -54,6 +55,7 @@ Artisan::command('entries:prune', function () {
         ->delete();
 
     $clusters = StoryCluster::doesntHave('entries')->delete();
+    Alert::where('created_at', '<', now()->subDays(90))->delete(); // alert history
 
     $this->info("Pruned {$deleted} entries older than {$days} days and {$clusters} empty story groups.");
 })->purpose('Delete old entries that nobody starred or saved');

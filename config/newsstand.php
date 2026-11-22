@@ -97,6 +97,23 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Alerts
+    |--------------------------------------------------------------------------
+    |
+    | Alert destinations (webhooks, ntfy, Gotify) are checked like feed URLs.
+    | Allow private/LAN addresses for self-hosted ntfy or Gotify; admins can
+    | also change this under Administration → Settings.
+    |
+    */
+
+    'alerts' => [
+        'allow_private' => (bool) env('NEWSSTAND_ALERTS_ALLOW_PRIVATE', false),
+        // Only stories published this recently trigger alerts (no alerts for old news found later).
+        'max_story_age_days' => 7,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Story clustering
     |--------------------------------------------------------------------------
     */

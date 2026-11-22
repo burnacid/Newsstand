@@ -5,6 +5,8 @@ namespace App\Services\Rules;
 use App\Models\Entry;
 use App\Models\Rule;
 use App\Models\User;
+use App\Services\Alerts\AlertDispatcher;
+use App\Services\Alerts\AlertMessage;
 use App\Services\Reader\EntryQuery;
 use App\Services\Reader\EntryStates;
 use App\Services\Reader\ReaderSource;
@@ -19,6 +21,9 @@ use Illuminate\Support\Facades\DB;
  */
 class RuleEvaluator
 {
+    /** Whether matching rules may send alerts (off while back-filling). */
+    private bool $notify = true;
+
     public function __construct(private EntryStates $states) {}
 
     /**
@@ -67,6 +72,18 @@ class RuleEvaluator
      * @return int number of matches
      */
     public function applyToRecent(Rule $rule, int $days = 30): int
+    {
+        // Back-filling: apply highlights/tags/etc., but don't send alerts about old news.
+        $this->notify = false;
+
+        try {
+            return $this->backfill($rule, $days);
+        } finally {
+            $this->notify = true;
+        }
+    }
+
+    private function backfill(Rule $rule, int $days): int
     {
         $user = $rule->user;
         $folders = DB::table('subscriptions')->where('user_id', $user->id)->pluck('folder_id', 'feed_id');
@@ -170,6 +187,15 @@ class RuleEvaluator
 
         if (! empty($actions['tag_id']) && ($tag = $user->tags()->whereKey((int) $actions['tag_id'])->first())) {
             $tag->entries()->syncWithoutDetaching([$entry->id => ['created_at' => $now]]);
+        }
+
+        // Alerts only for live, recent stories, never while back-filling a new rule.
+        $recent = $entry->published_at->greaterThanOrEqualTo(now()->subDays(config('newsstand.alerts.max_story_age_days')));
+
+        if ($this->notify && $recent && ! empty($actions['alert']) && is_array($actions['alert'])) {
+            $level = $entry->cves->contains('in_kev', true) ? 'critical' : ($entry->cves->isNotEmpty() ? 'high' : 'info');
+
+            app(AlertDispatcher::class)->notifyChannels($user, $actions['alert'], AlertMessage::forEntry($entry, 'Rule: '.$rule->name, $level), 'entry:'.$entry->id);
         }
     }
 

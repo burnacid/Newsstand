@@ -10,7 +10,8 @@ use App\Exceptions\UnsafeUrlException;
  */
 class UrlGuard
 {
-    public static function assertSafe(string $url): void
+    /** @param bool|null $blockPrivate override the feed setting (alerts have their own) */
+    public static function assertSafe(string $url, ?bool $blockPrivate = null): void
     {
         $parts = parse_url($url);
         $scheme = strtolower($parts['scheme'] ?? '');
@@ -19,7 +20,7 @@ class UrlGuard
             throw new UnsafeUrlException("Only http(s) URLs are allowed: {$url}");
         }
 
-        if (! config('newsstand.fetch.block_private_hosts')) {
+        if (! ($blockPrivate ?? config('newsstand.fetch.block_private_hosts'))) {
             return;
         }
 

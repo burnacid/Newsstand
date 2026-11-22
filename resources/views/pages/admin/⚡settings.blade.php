@@ -9,10 +9,13 @@ use Livewire\Component;
 new #[Title('Settings · Administration')] class extends Component {
     public string $registration = 'closed';
 
+    public bool $alertsAllowPrivate = false;
+
     public function mount(): void
     {
         $this->authorize('admin');
         $this->registration = Registration::mode();
+        $this->alertsAllowPrivate = (bool) Setting::get('alerts.allow_private', (bool) config('newsstand.alerts.allow_private'));
     }
 
     public function save(): void
@@ -21,6 +24,7 @@ new #[Title('Settings · Administration')] class extends Component {
         $this->validate(['registration' => ['required', 'in:'.implode(',', Registration::MODES)]]);
 
         Setting::set('registration', $this->registration);
+        Setting::set('alerts.allow_private', $this->alertsAllowPrivate);
         Flux::toast(variant: 'success', text: __('Saved.'));
     }
 
@@ -48,6 +52,12 @@ new #[Title('Settings · Administration')] class extends Component {
                 · <flux:link class="cursor-pointer" wire:click="useEnvironmentDefault">{{ __('use the server default') }}</flux:link>
             @endif
         </flux:text>
+
+        <flux:separator />
+
+        <flux:switch wire:model="alertsAllowPrivate" data-test="alerts-allow-private"
+            :label="__('Allow alert channels on the local network')"
+            :description="__('Needed for a self-hosted ntfy or Gotify on your LAN. Leave off if people you don’t fully trust have accounts: it lets them make the server send requests to internal addresses.')" />
 
         <flux:button type="submit" variant="primary" data-test="save-settings">{{ __('Save') }}</flux:button>
     </form>

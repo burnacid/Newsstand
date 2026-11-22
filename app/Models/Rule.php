@@ -23,7 +23,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  *   watchlist    concerns something on the owner's watchlist
  *
  * Actions: ['highlight' => color|null, 'tag_id' => int|null, 'star' => bool,
- *           'later' => bool, 'read' => bool, 'mute' => bool]
+ *           'later' => bool, 'read' => bool, 'mute' => bool,
+ *           'alert' => list<int> alert channel ids]
  *
  * @property int $id
  * @property int $user_id

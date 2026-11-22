@@ -5,6 +5,9 @@ namespace App\Services\Security;
 use App\Jobs\EvaluateRules;
 use App\Models\Cve;
 use App\Models\CveProduct;
+use App\Models\WatchlistItem;
+use App\Services\Alerts\AlertDispatcher;
+use App\Services\Alerts\AlertMessage;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -64,6 +67,8 @@ class KevSync
 
         $newIds = $rows->pluck('cve_id')->reject(fn ($id) => $wasKev->has($id))->values();
 
+        $this->alertWatchers(array_values(array_map(strval(...), $newIds->all())));
+
         // Stories mentioning newly exploited CVEs may now match "actively exploited" rules.
         $entryIds = DB::table('cve_entry')
             ->join('cves', 'cves.id', '=', 'cve_entry.cve_id')
@@ -78,5 +83,39 @@ class KevSync
         }
 
         return ['total' => $rows->count(), 'new' => $newIds->count()];
+    }
+
+    /**
+     * "A product you watch was just added to KEV": alert owners of matching
+     * watchlist items (with alerts on) whose channels subscribe to KEV alerts.
+     * Only for entries CISA added recently, so a first import doesn't flood anyone.
+     *
+     * @param  list<string>  $newCveIds
+     */
+    private function alertWatchers(array $newCveIds): void
+    {
+        if ($newCveIds === []) {
+            return;
+        }
+
+        $recent = Cve::whereIn('cve_id', $newCveIds)
+            ->where('kev_added_on', '>=', now()->subDays(7)->toDateString())
+            ->get()
+            ->keyBy('id');
+
+        if ($recent->isEmpty()) {
+            return;
+        }
+
+        $alerts = app(AlertDispatcher::class);
+
+        foreach (WatchlistItem::with('user')->where('alert_level', '!=', 'off')->get() as $item) {
+            $matching = $item->cveProducts()->whereIn('cve_id', $recent->keys())->distinct()->pluck('cve_id');
+
+            foreach ($matching as $cveId) {
+                $cve = $recent[$cveId];
+                $alerts->notify($item->user, 'kev', AlertMessage::forKev($cve, $item->label()), 'kev:'.$cve->cve_id);
+            }
+        }
     }
 }
