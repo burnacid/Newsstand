@@ -62,6 +62,12 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
         return $this->hasMany(Folder::class)->orderBy('position')->orderBy('name');
     }
 
+    /** @return HasMany<Tag, $this> */
+    public function tags(): HasMany
+    {
+        return $this->hasMany(Tag::class)->orderBy('name');
+    }
+
     /** @return BelongsToMany<Feed, $this> */
     public function feeds(): BelongsToMany
     {

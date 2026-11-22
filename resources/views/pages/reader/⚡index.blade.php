@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Reader\TagEntries;
 use App\Models\Entry;
 use App\Services\Reader\EntryQuery;
 use App\Services\Reader\EntryStates;
@@ -25,6 +26,10 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
 
     #[Url(as: 'q', except: '')]
     public string $search = '';
+
+    /** Time filter: '' (any time), 'day', 'week' or 'month'. */
+    #[Url(except: '')]
+    public string $period = '';
 
     #[Url(as: 'e', except: null)]
     public ?int $entryId = null;
@@ -62,8 +67,30 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
             'later' => __('Read later'),
             'feed' => Auth::user()->subscriptions()->with('feed')->where('feed_id', $source->id)->first()?->displayTitle() ?? __('Feed'),
             'folder' => Auth::user()->folders()->find($source->id)?->name ?? __('Folder'),
+            'tag' => '#'.(Auth::user()->tags()->find($source->id)?->name ?? __('Tag')),
             default => __('All stories'),
         };
+    }
+
+    /** All of the user's tags, for the tag picker. */
+    #[Computed]
+    public function userTags(): Collection
+    {
+        return Auth::user()->tags()->get();
+    }
+
+    /** Tags on the listed entries and the open entry: entry_id => tags. */
+    #[Computed]
+    public function entryTags(): Collection
+    {
+        $ids = $this->entries->pluck('id')->push($this->entryId)->filter()->unique()->values()->all();
+
+        return app(EntryQuery::class)->tagsFor(Auth::user(), $ids);
+    }
+
+    public function isSearching(): bool
+    {
+        return trim($this->search) !== '';
     }
 
     #[Computed]
@@ -149,11 +176,40 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
         Flux::toast(text: $later ? __('Saved for later.') : __('Removed from read later.'), duration: 1500);
     }
 
+    public function toggleTag(int $tagId, ?int $id = null): void
+    {
+        if (! $entry = $this->findEntry($id)) {
+            return;
+        }
+
+        app(TagEntries::class)->toggle(Auth::user(), $entry, $tagId);
+
+        $this->dispatch('tags-changed');
+        unset($this->entryTags);
+    }
+
+    public function addTag(string $name, ?int $id = null): void
+    {
+        if (! $entry = $this->findEntry($id)) {
+            return;
+        }
+
+        try {
+            $tag = app(TagEntries::class)->createAndAttach(Auth::user(), $entry, $name);
+        } catch (\InvalidArgumentException) {
+            return;
+        }
+
+        $this->dispatch('tags-changed');
+        unset($this->entryTags, $this->userTags);
+        Flux::toast(text: __('Tagged #:tag.', ['tag' => $tag->name]), duration: 1500);
+    }
+
     public function markAllRead(): void
     {
         $count = app(EntryStates::class)->markAllRead(
             Auth::user(),
-            app(EntryQuery::class)->for(Auth::user(), $this->parsedSource(), false, $this->search),
+            app(EntryQuery::class)->for(Auth::user(), $this->parsedSource(), false, $this->search, [], $this->period ?: null),
         );
 
         $this->keep = [];
@@ -241,7 +297,7 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
 
     public function updated(string $property): void
     {
-        if (in_array($property, ['show', 'search'], true)) {
+        if (in_array($property, ['show', 'search', 'period'], true)) {
             $this->limit = config('newsstand.reader_page_size');
             $this->keep = [];
         }
@@ -249,9 +305,10 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
 
     // --- Helpers ---
 
+    /** Searching always looks through read stories too. */
     private function unreadOnly(): bool
     {
-        return $this->show !== 'all';
+        return $this->show !== 'all' && ! $this->isSearching();
     }
 
     private function parsedSource(): ReaderSource
@@ -261,6 +318,7 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
         $owned = match ($source->type) {
             'feed' => Auth::user()->subscriptions()->where('feed_id', $source->id)->exists(),
             'folder' => Auth::user()->folders()->whereKey($source->id)->exists(),
+            'tag' => Auth::user()->tags()->whereKey($source->id)->exists(),
             default => true,
         };
 
@@ -270,7 +328,7 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
     /** @return Builder<Entry> */
     private function query(): Builder
     {
-        return app(EntryQuery::class)->for(Auth::user(), $this->parsedSource(), $this->unreadOnly(), $this->search, $this->keep);
+        return app(EntryQuery::class)->for(Auth::user(), $this->parsedSource(), $this->unreadOnly(), $this->search, $this->keep, $this->period ?: null);
     }
 
     private function findEntry(?int $id): ?Entry
@@ -316,11 +374,39 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
             <div class="flex items-center gap-2">
                 <flux:input wire:model.live.debounce.400ms="search" x-ref="search" size="sm" icon="magnifying-glass"
                     :placeholder="__('Search')" class="flex-1" clearable kbd="/" />
+
+                <flux:dropdown position="bottom" align="end">
+                    <flux:button size="sm" :variant="$period ? 'filled' : 'ghost'" icon="calendar" data-test="period-filter"
+                        :tooltip="__('Time period')">
+                        <span class="max-sm:hidden">{{ ['' => __('Any time'), 'day' => __('24 h'), 'week' => __('7 days'), 'month' => __('30 days')][$period] ?? __('Any time') }}</span>
+                    </flux:button>
+                    <flux:menu>
+                        <flux:menu.radio.group wire:model.live="period">
+                            <flux:menu.radio value="">{{ __('Any time') }}</flux:menu.radio>
+                            <flux:menu.radio value="day">{{ __('Last 24 hours') }}</flux:menu.radio>
+                            <flux:menu.radio value="week">{{ __('Last 7 days') }}</flux:menu.radio>
+                            <flux:menu.radio value="month">{{ __('Last 30 days') }}</flux:menu.radio>
+                        </flux:menu.radio.group>
+                    </flux:menu>
+                </flux:dropdown>
+
                 <flux:radio.group wire:model.live="show" variant="segmented" size="sm">
-                    <flux:radio value="unread" :label="__('Unread')" />
-                    <flux:radio value="all" :label="__('All')" />
+                    <flux:radio value="unread" :label="__('Unread')" :disabled="$this->isSearching()" />
+                    <flux:radio value="all" :label="__('All')" :disabled="$this->isSearching()" />
                 </flux:radio.group>
             </div>
+
+            @if ($this->isSearching())
+                <flux:text size="sm" class="flex items-center gap-1.5">
+                    <flux:icon.magnifying-glass variant="micro" />
+                    {{ __('Searching all stories, read and unread.') }}
+                    @if (\App\Services\Reader\EntryQuery::usesFullTextIndex())
+                        <flux:tooltip :content="__('Use “quotes” for phrases, -word to exclude, OR for alternatives.')">
+                            <flux:icon.information-circle variant="micro" class="cursor-help" />
+                        </flux:tooltip>
+                    @endif
+                </flux:text>
+            @endif
         </header>
 
         <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain" x-ref="list" data-scroll-area x-on:scroll.passive="riverScroll()">
@@ -338,9 +424,11 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
                                 @if ($item->isStarred())
                                     <flux:icon.star variant="micro" class="text-amber-500" />
                                 @endif
+                                <x-reader.tag-chips :tags="$this->entryTags[$item->id] ?? []" />
                             </x-slot:badges>
                             <x-slot:actions>
                                 <span class="ms-auto flex items-center gap-0.5">
+                                    <x-reader.tag-menu :entry-id="$item->id" :tags="$this->userTags" :selected="$this->entryTags[$item->id] ?? []" size="xs" />
                                     <flux:button size="xs" variant="ghost" icon="star" :icon:variant="$item->isStarred() ? 'solid' : 'outline'"
                                         wire:click="toggleStar({{ $item->id }})" @class(['!text-amber-500' => $item->isStarred()]) :tooltip="__('Star') . ' (s)'" />
                                     <flux:button size="xs" variant="ghost" icon="bookmark" :icon:variant="$item->isSavedForLater() ? 'solid' : 'outline'"
@@ -395,6 +483,8 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
                         @if ($layout === 'cards' && $item->summary)
                             <span class="mt-1 line-clamp-2 block text-sm text-zinc-600 dark:text-zinc-400">{{ $item->summary }}</span>
                         @endif
+
+                        <x-reader.tag-chips :tags="$this->entryTags[$item->id] ?? []" class="mt-1.5" />
                     </span>
 
                     @if ($layout === 'cards' && $item->image_url)
@@ -446,6 +536,7 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
 
                 <flux:spacer />
 
+                <x-reader.tag-menu :entry-id="$entry->id" :tags="$this->userTags" :selected="$this->entryTags[$entry->id] ?? []" />
                 <flux:button size="sm" variant="ghost" wire:click="toggleStar" data-test="toggle-star"
                     :icon="$entry->isStarred() ? 'star' : 'star'" :icon:variant="$entry->isStarred() ? 'solid' : 'outline'"
                     @class(['!text-amber-500' => $entry->isStarred()]) :tooltip="__('Star') . ' (s)'" />
@@ -461,7 +552,11 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
             </div>
 
             <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain" x-ref="pane">
-                <x-reader.article :entry="$entry" wire:key="article-{{ $entry->id }}" />
+                <x-reader.article :entry="$entry" wire:key="article-{{ $entry->id }}">
+                    <x-slot:badges>
+                        <x-reader.tag-chips :tags="$this->entryTags[$entry->id] ?? []" />
+                    </x-slot:badges>
+                </x-reader.article>
             </div>
         @else
             <div class="flex flex-1 flex-col items-center justify-center p-10 text-center">
@@ -486,6 +581,7 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
                 ['s', __('Star / unstar')],
                 ['l', __('Save for later')],
                 ['m', __('Mark read / unread')],
+                ['t', __('Tag the story')],
                 ['Shift + A', __('Mark all as read')],
                 ['u', __('Toggle unread / all')],
                 ['/', __('Search')],

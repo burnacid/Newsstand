@@ -136,6 +136,7 @@ export default () => ({
             s: withCurrent((id) => this.$wire.toggleStar(id)),
             l: withCurrent((id) => this.$wire.toggleLater(id)),
             m: withCurrent((id) => this.$wire.toggleRead(id)),
+            t: () => this.openTagMenu(),
             u: () => this.$wire.set('show', this.$wire.show === 'all' ? 'unread' : 'all'),
             A: () => {
                 if (confirm('Mark every story here as read?')) this.$wire.markAllRead();
@@ -176,6 +177,17 @@ export default () => ({
 
         // Prefetch more when getting close to the end of the list.
         if (index >= items.length - 5) this.$wire.loadMore();
+    },
+
+    openTagMenu() {
+        let scope = this.$refs.pane?.parentElement;
+
+        if (this.isRiver()) {
+            const { items, index } = this.riverCurrent();
+            scope = items[index];
+        }
+
+        scope?.querySelector('[data-tag-menu]')?.click();
     },
 
     openOriginal() {

@@ -72,6 +72,12 @@ class Entry extends Model
         return $this->belongsTo(Feed::class);
     }
 
+    /** @return BelongsToMany<Tag, $this> */
+    public function tags(): BelongsToMany
+    {
+        return $this->belongsToMany(Tag::class)->withPivot('created_at');
+    }
+
     /** @return BelongsToMany<User, $this> */
     public function users(): BelongsToMany
     {

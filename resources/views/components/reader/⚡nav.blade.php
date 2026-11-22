@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Feeds\Organizer;
 use App\Services\Reader\EntryQuery;
 use App\Services\Reader\ReaderSource;
 use Illuminate\Support\Collection;
@@ -27,6 +28,18 @@ new class extends Component {
         unset($this->counts, $this->collections);
     }
 
+    #[On('tags-changed')]
+    public function refreshTags(): void
+    {
+        unset($this->tags);
+    }
+
+    #[Computed]
+    public function tags(): Collection
+    {
+        return Auth::user()->tags()->withCount('entries')->get();
+    }
+
     #[On('reader-source-changed')]
     public function sourceChanged(string $source): void
     {
@@ -49,8 +62,7 @@ new class extends Component {
     public function tree(): array
     {
         $user = Auth::user();
-        $subscriptions = $user->subscriptions()->with('feed:id,title,url')->get()
-            ->sortBy(fn ($s) => mb_strtolower($s->displayTitle()));
+        $subscriptions = Organizer::sortSubscriptions($user->subscriptions()->with('feed:id,title,url')->get());
 
         return [
             'folders' => $user->folders()->get()->map(fn ($folder) => [
@@ -100,6 +112,20 @@ new class extends Component {
             @endforeach
         </flux:sidebar.group>
     @endforeach
+
+    @if ($this->tags->isNotEmpty())
+        <flux:sidebar.group expandable :heading="__('Tags')" class="mt-3 grid">
+            @foreach ($this->tags as $tag)
+                <flux:sidebar.item :href="$link('tag:'.$tag->id)" :current="$current === 'tag:'.$tag->id"
+                    :badge="$this->badge($tag->entries_count)" wire:navigate wire:key="nav-tag-{{ $tag->id }}">
+                    <span class="flex items-center gap-2">
+                        <span @class(['size-2 shrink-0 rounded-full', "bg-{$tag->color}-500"])></span>
+                        {{ $tag->name }}
+                    </span>
+                </flux:sidebar.item>
+            @endforeach
+        </flux:sidebar.group>
+    @endif
 
     @if ($this->tree['unfiled']->isNotEmpty())
         <flux:sidebar.group expandable :heading="$this->tree['folders']->isEmpty() ? __('Feeds') : __('Unfiled')" class="mt-3 grid">

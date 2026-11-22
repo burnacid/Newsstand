@@ -3,6 +3,9 @@
 
 @plugin '@tailwindcss/typography';
 
+/* Tag color dots are chosen at runtime (App\Models\Tag::COLORS). */
+@source inline("bg-{zinc,red,orange,amber,lime,emerald,cyan,blue,violet,pink}-500");
+
 @source '../views';
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
 @source '../../vendor/livewire/flux-pro/stubs/**/*.blade.php';
@@ -57,6 +60,42 @@
     ::selection {
         background-color: color-mix(in oklab, var(--color-emerald-500) 25%, transparent);
     }
+}
+
+/*
+ * Compact management rows (folders, tags): no fill of their own so they sit
+ * inside a card; soft highlight on hover; handle and actions fade in on
+ * hover on desktop and are always visible on touch screens.
+ */
+.list-row {
+    @apply flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-sm text-zinc-700 transition-colors dark:text-zinc-200;
+    @apply hover:bg-zinc-100 dark:hover:bg-white/5;
+}
+
+.list-row-handle {
+    @apply -ms-0.5 flex shrink-0 cursor-grab items-center text-zinc-300 transition-colors dark:text-zinc-600;
+
+    .list-row:hover & {
+        @apply text-zinc-500 dark:text-zinc-400;
+    }
+}
+
+.list-row-actions {
+    @apply flex shrink-0 items-center gap-0.5 transition-opacity;
+
+    @media (hover: hover) {
+        @apply opacity-0;
+
+        .list-row:hover &,
+        .list-row:focus-within & {
+            @apply opacity-100;
+        }
+    }
+}
+
+/* The row being dragged: lift it off the card instead of leaving a hole. */
+.sorting .list-row.sortable-chosen {
+    @apply bg-white shadow-md ring-1 ring-zinc-200 dark:bg-zinc-700 dark:ring-zinc-600;
 }
 
 /* Double rule, as under a newspaper masthead. */

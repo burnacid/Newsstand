@@ -33,7 +33,7 @@ class FeedRefresher
 
             if ($response->status() !== 304) {
                 if (! $response->successful()) {
-                    throw new RuntimeException("HTTP {$response->status()} {$response->reason()}");
+                    throw new RuntimeException(FeedDiscovery::explainStatus($response->status()));
                 }
 
                 $parsed = $this->parser->parse($response->body(), $feed->url);

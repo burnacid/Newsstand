@@ -13,7 +13,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int|null $folder_id
  * @property string|null $custom_title
  */
-#[Fillable(['feed_id', 'folder_id', 'custom_title'])]
+#[Fillable(['feed_id', 'folder_id', 'custom_title', 'position'])]
 class Subscription extends Model
 {
     /** @return BelongsTo<User, $this> */

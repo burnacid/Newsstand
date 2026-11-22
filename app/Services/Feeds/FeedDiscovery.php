@@ -38,7 +38,7 @@ class FeedDiscovery
         $response = $this->http->get($url);
 
         if (! $response->successful()) {
-            throw new RuntimeException("The site responded with HTTP {$response->status()}.");
+            throw new RuntimeException(self::explainStatus($response->status()));
         }
 
         $effective = FeedHttp::effectiveUrl($response, $url);
@@ -61,6 +61,18 @@ class FeedDiscovery
 
         // 3. Well-known feed locations on the same origin.
         return $this->probeCommonPaths($effective);
+    }
+
+    /** A human explanation for an HTTP error from a feed or site. */
+    public static function explainStatus(int $status): string
+    {
+        return match (true) {
+            $status === 401, $status === 403 => "The site refused the request (HTTP {$status}). Some sites block automated feed readers.",
+            $status === 404, $status === 410 => "Nothing was found at that address (HTTP {$status}).",
+            $status === 429 => 'The site is rate limiting requests (HTTP 429). Try again later.',
+            $status >= 500 => "The site is having problems (HTTP {$status}). Try again later.",
+            default => "The site responded with HTTP {$status}.",
+        };
     }
 
     /** @return list<FeedCandidate> */

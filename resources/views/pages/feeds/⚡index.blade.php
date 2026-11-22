@@ -1,8 +1,11 @@
 <?php
 
+use App\Actions\Feeds\Organizer;
 use App\Actions\Feeds\SubscribeToFeed;
+use App\Actions\Reader\TagEntries;
 use App\Models\Folder;
 use App\Models\Subscription;
+use App\Models\Tag;
 use App\Services\Feeds\FeedDiscovery;
 use App\Services\Feeds\FeedRefresher;
 use App\Services\Feeds\OpmlService;
@@ -50,11 +53,72 @@ new #[Title('Feeds')] class extends Component {
     #[Computed]
     public function subscriptions(): Collection
     {
-        return Auth::user()->subscriptions()
-            ->with(['feed' => fn ($q) => $q->withCount('entries')])
-            ->get()
-            ->sortBy(fn (Subscription $s) => mb_strtolower($s->displayTitle()))
-            ->groupBy(fn (Subscription $s) => $s->folder_id ?? 0);
+        return Organizer::sortSubscriptions(
+            Auth::user()->subscriptions()->with(['feed' => fn ($q) => $q->withCount('entries')])->get()
+        )->groupBy(fn (Subscription $s) => $s->folder_id ?? 0);
+    }
+
+    #[Computed]
+    public function tags(): Collection
+    {
+        return Auth::user()->tags()->withCount('entries')->get();
+    }
+
+    // --- Drag and drop ---
+
+    public function sortFolder(int $id, int $position, Organizer $organizer): void
+    {
+        $organizer->moveFolder(Auth::user(), $id, $position);
+        unset($this->folders);
+    }
+
+    /** $group is the target folder id, or "0" for Unfiled. */
+    public function sortSubscription(int $id, int $position, string $group, Organizer $organizer): void
+    {
+        $organizer->moveSubscription(Auth::user(), $id, $position, (int) $group ?: null);
+        unset($this->subscriptions);
+    }
+
+    // --- Tags ---
+
+    public string $tagName = '';
+
+    public function createTag(TagEntries $tags): void
+    {
+        $this->validate(['tagName' => ['required', 'string', 'max:50']]);
+        $tags->create(Auth::user(), $this->tagName);
+
+        $this->reset('tagName');
+        unset($this->tags);
+    }
+
+    public function renameTag(int $id, string $name): void
+    {
+        $name = trim($name);
+        $tag = Auth::user()->tags()->findOrFail($id);
+
+        if ($name === '' || mb_strlen($name) > 50 || Auth::user()->tags()->where('name', $name)->whereKeyNot($id)->exists()) {
+            Flux::toast(variant: 'danger', text: __('That tag name is empty, too long or already used.'));
+
+            return;
+        }
+
+        $tag->update(['name' => $name]);
+        unset($this->tags);
+    }
+
+    public function recolorTag(int $id, string $color): void
+    {
+        if (in_array($color, Tag::COLORS, true)) {
+            Auth::user()->tags()->findOrFail($id)->update(['color' => $color]);
+            unset($this->tags);
+        }
+    }
+
+    public function deleteTag(int $id): void
+    {
+        Auth::user()->tags()->findOrFail($id)->delete();
+        unset($this->tags);
     }
 
     public function discover(FeedDiscovery $discovery, SubscribeToFeed $subscribe): void
@@ -145,9 +209,15 @@ new #[Title('Feeds')] class extends Component {
         ]);
 
         $subscription = $this->findSubscription($this->editingId);
+        $folderId = $this->editFolderId !== '' ? (int) $this->editFolderId : null;
+
         $subscription->update([
             'custom_title' => $this->editTitle !== '' ? $this->editTitle : null,
-            'folder_id' => $this->editFolderId !== '' ? (int) $this->editFolderId : null,
+            'folder_id' => $folderId,
+            // Moving to another folder puts the feed at the end of it.
+            'position' => $subscription->folder_id === $folderId
+                ? $subscription->position
+                : SubscribeToFeed::nextPosition(Auth::user(), $folderId),
         ]);
 
         // Full-text extraction is a property of the (shared) feed.
@@ -299,15 +369,26 @@ new #[Title('Feeds')] class extends Component {
                 <flux:button type="submit">{{ __('Add') }}</flux:button>
             </form>
 
-            <div class="divide-y divide-zinc-200 dark:divide-zinc-700">
+            @if ($this->folders->count() > 1)
+                <flux:text size="sm">{{ __('Drag to reorder. The sidebar follows this order.') }}</flux:text>
+            @endif
+
+            <div class="-mx-2 space-y-0.5" wire:sort="sortFolder" data-test="folder-list">
                 @forelse ($this->folders as $folder)
-                    <div class="flex items-center justify-between py-2" wire:key="folder-{{ $folder->id }}">
-                        <span>{{ $folder->name }}</span>
-                        <div class="flex gap-1">
-                            <flux:button size="sm" variant="ghost" icon="pencil-square" wire:click="startRenameFolder({{ $folder->id }})" />
-                            <flux:button size="sm" variant="ghost" icon="trash" wire:click="deleteFolder({{ $folder->id }})"
+                    <div class="list-row" wire:key="folder-{{ $folder->id }}" wire:sort:item="{{ $folder->id }}">
+                        <span class="flex min-w-0 items-center gap-2.5">
+                            <span class="list-row-handle" wire:sort:handle title="{{ __('Drag to reorder') }}">
+                                <flux:icon.bars-2 variant="micro" />
+                            </span>
+                            <flux:icon.folder variant="micro" class="shrink-0 text-zinc-400 dark:text-zinc-500" />
+                            <span class="truncate">{{ $folder->name }}</span>
+                            <span class="text-xs text-zinc-400 dark:text-zinc-500">{{ $this->subscriptions->get($folder->id)?->count() ?? 0 }}</span>
+                        </span>
+                        <span class="list-row-actions">
+                            <flux:button size="xs" variant="subtle" icon="pencil" :tooltip="__('Rename')" wire:click="startRenameFolder({{ $folder->id }})" />
+                            <flux:button size="xs" variant="subtle" icon="trash" :tooltip="__('Delete')" wire:click="deleteFolder({{ $folder->id }})"
                                 wire:confirm="{{ __('Delete this folder? Its feeds will move to Unfiled.') }}" />
-                        </div>
+                        </span>
                     </div>
                 @empty
                     <flux:text>{{ __('No folders yet.') }}</flux:text>
@@ -316,6 +397,57 @@ new #[Title('Feeds')] class extends Component {
         </flux:card>
 
         <flux:card class="space-y-4">
+            <flux:heading size="lg">{{ __('Tags') }}</flux:heading>
+
+            <form wire:submit="createTag" class="flex gap-2">
+                <div class="flex-1">
+                    <flux:input wire:model="tagName" :placeholder="__('New tag name')" />
+                    <flux:error name="tagName" />
+                </div>
+                <flux:button type="submit">{{ __('Add') }}</flux:button>
+            </form>
+
+            <div class="-mx-2 space-y-0.5">
+                @forelse ($this->tags as $tag)
+                    <div class="list-row" wire:key="tag-{{ $tag->id }}"
+                        x-data="{ editing: false, name: @js($tag->name) }">
+                        <span class="flex min-w-0 flex-1 items-center gap-2.5">
+                            <flux:dropdown>
+                                <button type="button" @class(['size-3 shrink-0 rounded-full transition hover:scale-125', "bg-{$tag->color}-500"])
+                                    title="{{ __('Change color') }}"></button>
+                                <flux:menu>
+                                    <div class="grid grid-cols-5 gap-2 p-2">
+                                        @foreach (\App\Models\Tag::COLORS as $color)
+                                            <button type="button" wire:click="recolorTag({{ $tag->id }}, '{{ $color }}')"
+                                                @class(['size-6 rounded-full', "bg-{$color}-500", 'ring-2 ring-offset-2 ring-zinc-400' => $tag->color === $color])
+                                                title="{{ $color }}"></button>
+                                        @endforeach
+                                    </div>
+                                </flux:menu>
+                            </flux:dropdown>
+
+                            <span x-show="! editing" class="truncate">{{ $tag->name }}</span>
+                            <input x-show="editing" x-cloak x-model="name" x-ref="input"
+                                class="min-w-0 flex-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-sm outline-none focus:ring-2 focus:ring-accent dark:border-zinc-600 dark:bg-zinc-800"
+                                x-on:keydown.enter="$wire.renameTag({{ $tag->id }}, name); editing = false"
+                                x-on:keydown.escape="editing = false; name = @js($tag->name)"
+                                x-on:blur="editing = false; name = @js($tag->name)">
+                            <span x-show="! editing" class="text-xs text-zinc-400 dark:text-zinc-500">{{ $tag->entries_count }}</span>
+                        </span>
+                        <span class="list-row-actions">
+                            <flux:button size="xs" variant="subtle" icon="pencil" :tooltip="__('Rename')"
+                                x-on:mousedown.prevent x-on:click="editing = ! editing; $nextTick(() => $refs.input.focus())" />
+                            <flux:button size="xs" variant="subtle" icon="trash" :tooltip="__('Delete')" wire:click="deleteTag({{ $tag->id }})"
+                                wire:confirm="{{ __('Delete this tag? Stories keep their other tags.') }}" />
+                        </span>
+                    </div>
+                @empty
+                    <flux:text>{{ __('No tags yet. Tag a story from the reader with the tag button or by pressing t.') }}</flux:text>
+                @endforelse
+            </div>
+        </flux:card>
+
+        <flux:card class="space-y-4 md:col-span-2">
             <flux:heading size="lg">{{ __('Import / export') }}</flux:heading>
             <flux:text>{{ __('Move your subscriptions between readers with an OPML file.') }}</flux:text>
 
@@ -337,14 +469,23 @@ new #[Title('Feeds')] class extends Component {
         <flux:callout icon="rss" :heading="__('No subscriptions yet')" :text="__('Add a site above or import an OPML file to get started.')" />
     @endif
 
+    @if ($groups->isNotEmpty())
+        <flux:text size="sm" class="flex items-center gap-1.5">
+            <flux:icon.bars-2 variant="micro" />
+            {{ __('Drag feeds to reorder them or to move them to another folder.') }}
+        </flux:text>
+    @endif
+
     @foreach (collect([0 => null])->union($this->folders->keyBy('id')) as $folderKey => $folder)
-        @continue(! $groups->has($folderKey))
+        {{-- Every folder is a drop target, even when empty; Unfiled only when there are feeds at all. --}}
+        @continue($groups->isEmpty() || ($folderKey === 0 && ! $groups->has(0) && $this->folders->isEmpty()))
 
         <section class="space-y-2" wire:key="group-{{ $folderKey }}">
             <flux:heading size="lg">{{ $folder?->name ?? __('Unfiled') }}</flux:heading>
 
             <flux:table>
                 <flux:table.columns>
+                    <flux:table.column class="w-6"></flux:table.column>
                     <flux:table.column>{{ __('Feed') }}</flux:table.column>
                     <flux:table.column class="hidden md:table-cell">{{ __('Entries') }}</flux:table.column>
                     <flux:table.column class="hidden md:table-cell">{{ __('Last fetched') }}</flux:table.column>
@@ -352,10 +493,18 @@ new #[Title('Feeds')] class extends Component {
                     <flux:table.column></flux:table.column>
                 </flux:table.columns>
 
-                <flux:table.rows>
-                    @foreach ($groups[$folderKey] as $subscription)
+                <flux:table.rows wire:sort="sortSubscription" wire:sort:group="subscriptions" wire:sort:group-id="{{ $folderKey }}" data-test="feeds-{{ $folderKey }}">
+                    @if (! $groups->has($folderKey))
+                        <tr class="text-sm text-zinc-400" wire:key="empty-{{ $folderKey }}">
+                            <td colspan="6" class="py-4 text-center italic">{{ __('Drop feeds here') }}</td>
+                        </tr>
+                    @endif
+                    @foreach ($groups[$folderKey] ?? [] as $subscription)
                         @php($feed = $subscription->feed)
-                        <flux:table.row wire:key="sub-{{ $subscription->id }}">
+                        <flux:table.row wire:key="sub-{{ $subscription->id }}" wire:sort:item="{{ $subscription->id }}">
+                            <flux:table.cell class="w-6 !pe-0">
+                                <flux:icon.bars-2 variant="micro" class="cursor-grab text-zinc-400" wire:sort:handle />
+                            </flux:table.cell>
                             <flux:table.cell class="max-w-xs">
                                 <div class="truncate font-medium">{{ $subscription->displayTitle() }}</div>
                                 <div class="truncate text-xs text-zinc-500">{{ $feed->url }}</div>
