@@ -31,7 +31,39 @@ class Entry extends Model
         return [
             'published_at' => 'datetime',
             'full_text_extracted' => 'boolean',
+            // Per-user state, joined in by EntryQuery (not columns of `entries`).
+            'read_at' => 'datetime',
+            'starred_at' => 'datetime',
+            'read_later_at' => 'datetime',
         ];
+    }
+
+    public function isRead(): bool
+    {
+        return $this->getAttribute('read_at') !== null;
+    }
+
+    public function isStarred(): bool
+    {
+        return $this->getAttribute('starred_at') !== null;
+    }
+
+    public function isSavedForLater(): bool
+    {
+        return $this->getAttribute('read_later_at') !== null;
+    }
+
+    public function readingMinutes(): int
+    {
+        $words = str_word_count(strip_tags((string) ($this->content ?? $this->summary)));
+
+        return max(1, (int) round($words / 230));
+    }
+
+    /** True when the lead image already appears inside the article body. */
+    public function imageInContent(): bool
+    {
+        return $this->image_url !== null && str_contains((string) $this->content, $this->image_url);
     }
 
     /** @return BelongsTo<Feed, $this> */

@@ -1,6 +1,8 @@
 @import 'tailwindcss';
 @import '../../vendor/livewire/flux/dist/flux.css';
 
+@plugin '@tailwindcss/typography';
+
 @source '../views';
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
 @source '../../vendor/livewire/flux-pro/stubs/**/*.blade.php';
@@ -60,6 +62,26 @@
 /* Double rule, as under a newspaper masthead. */
 .rule-double {
     border-top: 3px double currentColor;
+}
+
+/* Article body in the reading pane: serif, generous measure, emerald links. */
+.prose-article {
+    @apply prose prose-lg prose-zinc max-w-none font-serif dark:prose-invert;
+    @apply prose-headings:font-serif prose-headings:tracking-tight;
+    @apply prose-a:text-emerald-700 prose-a:decoration-emerald-700/30 prose-a:underline-offset-2 hover:prose-a:decoration-emerald-700 dark:prose-a:text-emerald-400 dark:prose-a:decoration-emerald-400/30;
+    @apply prose-img:rounded-lg prose-img:mx-auto;
+    @apply prose-pre:bg-zinc-900 prose-pre:text-zinc-100 prose-pre:text-sm prose-code:font-mono prose-code:text-[0.9em];
+    @apply prose-blockquote:border-emerald-600 prose-blockquote:font-normal prose-blockquote:not-italic;
+
+    overflow-wrap: anywhere;
+
+    & pre code {
+        overflow-wrap: normal;
+    }
+
+    & table {
+        @apply block overflow-x-auto;
+    }
 }
 
 @layer base {

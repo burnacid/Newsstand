@@ -6,7 +6,9 @@ use Illuminate\Support\Facades\Route;
 Route::view('/', 'welcome')->name('home');
 
 Route::middleware(['auth', 'verified'])->group(function () {
-    Route::view('dashboard', 'dashboard')->name('dashboard');
+    // The reader is home for now; shared dashboards arrive in a later phase.
+    Route::redirect('dashboard', 'reader')->name('dashboard');
+    Route::livewire('reader', 'pages::reader.index')->name('reader');
 
     Route::livewire('feeds', 'pages::feeds.index')->name('feeds.index');
     Route::get('feeds/export', OpmlExportController::class)->name('feeds.export');

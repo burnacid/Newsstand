@@ -44,4 +44,18 @@ return [
 
     'retention_days' => (int) env('NEWSSTAND_RETENTION_DAYS', 90),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Reader
+    |--------------------------------------------------------------------------
+    |
+    | Entries older than this many days never count as unread, so subscribing
+    | to a feed with a long history doesn't bury you in a backlog.
+    |
+    */
+
+    'unread_max_age_days' => (int) env('NEWSSTAND_UNREAD_MAX_AGE_DAYS', 30),
+
+    'reader_page_size' => 40,
+
 ];

@@ -24,6 +24,8 @@ class ContentSanitizer
             ->forceAttribute('a', 'rel', 'noopener noreferrer nofollow')
             ->forceAttribute('a', 'target', '_blank')
             ->forceAttribute('img', 'loading', 'lazy')
+            // Don't tell third-party image hosts which article you're reading.
+            ->forceAttribute('img', 'referrerpolicy', 'no-referrer')
             ->dropAttribute('style', '*')
             ->dropAttribute('class', '*')
             ->dropAttribute('id', '*')

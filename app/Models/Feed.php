@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\FeedTitle;
 use App\Support\UrlNormalizer;
 use Carbon\CarbonImmutable;
 use Database\Factories\FeedFactory;
@@ -40,6 +41,7 @@ class Feed extends Model
     {
         static::saving(function (Feed $feed) {
             $feed->url_hash = UrlNormalizer::hash($feed->url);
+            $feed->title = FeedTitle::clean($feed->title);
         });
     }
 
