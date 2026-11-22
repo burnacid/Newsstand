@@ -8,11 +8,15 @@ return [
     |--------------------------------------------------------------------------
     |
     | "open": anyone can create an account. "closed": only the first account
-    | (your admin); add others with `php artisan newsstand:user`.
+    | (your admin). "disabled": no sign-ups at all. Add users with
+    | `php artisan newsstand:user`.
     |
     */
 
     'registration' => env('NEWSSTAND_REGISTRATION', 'open'),
+
+    // Single source of truth for the release version: the VERSION file.
+    'version' => trim((string) @file_get_contents(base_path('VERSION'))) ?: 'dev',
 
     /*
     |--------------------------------------------------------------------------

@@ -61,7 +61,7 @@
 
             <footer class="flex items-center justify-between border-t border-zinc-300 py-6 text-sm text-zinc-500 dark:border-zinc-800">
                 <span>{{ config('app.name', 'Newsstand') }} &middot; {{ __('Your feeds, your server.') }}</span>
-                <span class="font-serif italic">{{ __('Est. :year', ['year' => 2026]) }}</span>
+                <span class="font-serif italic">{{ __('Est. :year', ['year' => 2026]) }} &middot; v{{ config('newsstand.version') }}</span>
             </footer>
         </div>
 

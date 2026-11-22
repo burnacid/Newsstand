@@ -1,7 +1,8 @@
 # Newsstand production stack.
 #
 #   cp .env.production.example .env.production   # then edit it
-#   docker compose --env-file .env.production -f docker-compose.production.yml up -d --build
+#   docker compose --env-file .env.production -f docker-compose.production.yml up -d
+#   (add --build to build from this checkout instead of pulling burnacid/newsstand)
 #
 # Put a TLS-terminating reverse proxy (Caddy, Traefik, nginx, Cloudflare Tunnel)
 # in front of port ${APP_PORT:-8080}. See README.md.
@@ -9,8 +10,9 @@
 name: newsstand-production
 
 x-app: &app
+  # Published image; `--build` builds it from this checkout instead.
+  image: burnacid/newsstand:${NEWSSTAND_IMAGE_TAG:-latest}
   build: .
-  image: newsstand:latest
   env_file: .env.production
   restart: unless-stopped
   volumes:

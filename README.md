@@ -55,23 +55,28 @@ Browser checks (Playwright, against a running dev server) live in `tests/Browser
 
 ## Production
 
-The repository ships a production image (FrankenPHP) and a compose stack with the app, a Horizon queue worker,
-the scheduler, PostgreSQL and Redis.
+The image is published on Docker Hub as [`burnacid/newsstand`](https://hub.docker.com/r/burnacid/newsstand)
+(tags `1.0.0`, `1.0`, `1`, `latest`; amd64). The compose stack runs it as the app, a Horizon queue worker and
+the scheduler, with PostgreSQL and Redis. You only need `docker-compose.production.yml` and `.env.production.example`
+from this repository.
 
 ```bash
 cp .env.production.example .env.production
 # edit .env.production: APP_URL, DB_PASSWORD, mail settings…
 docker compose --env-file .env.production -f docker-compose.production.yml run --rm --no-deps --entrypoint php app artisan key:generate --show
 # put the key in .env.production as APP_KEY, then:
-docker compose --env-file .env.production -f docker-compose.production.yml up -d --build
+docker compose --env-file .env.production -f docker-compose.production.yml up -d
 ```
+
+Pin a version with `NEWSSTAND_IMAGE_TAG=1.0.0` in `.env.production` (default: `latest`). To build from a checkout
+instead, add `--build`. Upgrading: `docker compose ... pull && docker compose ... up -d`; see [CHANGELOG.md](CHANGELOG.md).
 
 The app listens on port `8080` (`APP_PORT`). Put a TLS-terminating reverse proxy in front of it
 (Caddy, Traefik, nginx, Cloudflare Tunnel) and set `TRUSTED_PROXIES`. Database migrations run automatically
 when the app container starts.
 
 **First user:** with `NEWSSTAND_REGISTRATION=closed` (the production default) only the first account can sign
-up; that's you. Add more users with:
+up; that's you. With `disabled` nobody can sign up, not even the first account. Either way, add users with:
 
 ```bash
 docker compose --env-file .env.production -f docker-compose.production.yml exec app php artisan newsstand:user colleague@example.com --name="Colleague"
@@ -96,7 +101,7 @@ All Newsstand settings are in `config/newsstand.php`, most with an environment v
 
 | Variable | Default | What it does |
 |---|---|---|
-| `NEWSSTAND_REGISTRATION` | `open` | `closed`: only the first account can register |
+| `NEWSSTAND_REGISTRATION` | `open` | `closed`: only the first account can register; `disabled`: nobody can (use `newsstand:user`) |
 | `NEWSSTAND_USER_AGENT` | `Newsstand/1.0 (+self-hosted RSS reader)` | How Newsstand identifies itself to sites |
 | `NEWSSTAND_BLOCK_PRIVATE_HOSTS` | `true` | Refuse feeds on private / LAN addresses (SSRF protection) |
 | `NEWSSTAND_RETENTION_DAYS` | `90` | Delete older stories nightly (starred, saved and tagged are kept) |

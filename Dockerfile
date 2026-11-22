@@ -29,6 +29,13 @@ RUN npm run build
 # --- Runtime ------------------------------------------------------------------
 FROM dunglas/frankenphp:1-php8.4-bookworm
 
+ARG VERSION=dev
+LABEL org.opencontainers.image.title="Newsstand" \
+      org.opencontainers.image.description="Self-hosted RSS reader for tech and security news" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.source="https://github.com/burnacid/Newsstand" \
+      org.opencontainers.image.url="https://hub.docker.com/r/burnacid/newsstand"
+
 RUN install-php-extensions pdo_pgsql pdo_mysql redis pcntl intl zip opcache bcmath
 
 ENV SERVER_NAME=:8080 \

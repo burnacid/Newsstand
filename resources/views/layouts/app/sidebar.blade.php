@@ -29,6 +29,8 @@
                 </flux:sidebar.item>
             </flux:sidebar.nav>
 
+            <div class="px-3 text-[0.7rem] text-zinc-400 dark:text-zinc-500" title="{{ __('Newsstand version') }}">v{{ config('newsstand.version') }}</div>
+
             <x-desktop-user-menu class="hidden lg:block" :name="auth()->user()->name" />
         </flux:sidebar>
 
