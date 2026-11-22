@@ -21,6 +21,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::livewire('feeds', 'pages::feeds.index')->name('feeds.index');
     Route::livewire('security', 'pages::security.index')->name('security');
+    Route::livewire('security/cves/{cveId}', 'pages::security.cve')->where('cveId', '(?i)CVE-\d{4}-\d{4,}')->name('security.cve');
+    Route::livewire('watchlist', 'pages::watchlist.index')->name('watchlist');
     Route::livewire('rules', 'pages::rules.index')->name('rules');
     Route::get('feeds/export', OpmlExportController::class)->name('feeds.export');
 });

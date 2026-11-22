@@ -21,6 +21,9 @@
                 <flux:sidebar.item icon="shield-exclamation" :href="route('security')" :current="request()->routeIs('security')" wire:navigate>
                     {{ __('Vulnerabilities') }}
                 </flux:sidebar.item>
+                <flux:sidebar.item icon="eye" :href="route('watchlist')" :current="request()->routeIs('watchlist')" wire:navigate>
+                    {{ __('Watchlist') }}
+                </flux:sidebar.item>
                 <flux:sidebar.item icon="adjustments-horizontal" :href="route('rules')" :current="request()->routeIs('rules')" wire:navigate>
                     {{ __('Rules') }}
                 </flux:sidebar.item>

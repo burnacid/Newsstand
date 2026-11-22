@@ -4,6 +4,7 @@ namespace App\Services\Security;
 
 use App\Jobs\EvaluateRules;
 use App\Models\Cve;
+use App\Models\CveProduct;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -52,6 +53,14 @@ class KevSync
                 fn (Cve $cve) => $cve->update(['description' => $rows->firstWhere('cve_id', $cve->cve_id)['description'] ?? null])
             );
         });
+
+        // CISA's vendor/product names, for watchlist matching.
+        $ids = Cve::whereIn('cve_id', $rows->pluck('cve_id'))->pluck('id', 'cve_id');
+        foreach ($rows as $row) {
+            if (isset($ids[$row['cve_id']]) && $row['kev_vendor'] && $row['kev_product']) {
+                CveProduct::record($ids[$row['cve_id']], [[$row['kev_vendor'], $row['kev_product']]], 'kev');
+            }
+        }
 
         $newIds = $rows->pluck('cve_id')->reject(fn ($id) => $wasKev->has($id))->values();
 

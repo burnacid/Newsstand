@@ -25,7 +25,13 @@ new class extends Component {
     #[On('unread-changed')]
     public function refreshCounts(): void
     {
-        unset($this->counts, $this->collections);
+        unset($this->counts, $this->collections, $this->watching);
+    }
+
+    #[Computed]
+    public function watching(): bool
+    {
+        return Auth::user()->watchlist()->exists();
     }
 
     #[On('tags-changed')]
@@ -92,6 +98,11 @@ new class extends Component {
         <flux:sidebar.item icon="fire" :href="$link('top')" :current="$current === 'top'" wire:navigate>
             {{ __('Top stories') }}
         </flux:sidebar.item>
+        @if ($this->watching)
+            <flux:sidebar.item icon="eye" :href="$link('watchlist')" :current="$current === 'watchlist'" wire:navigate>
+                {{ __('Your watchlist') }}
+            </flux:sidebar.item>
+        @endif
         <flux:sidebar.item icon="star" :href="$link('starred')" :current="$current === 'starred'" :badge="$this->badge($this->collections['starred'])" wire:navigate>
             {{ __('Starred') }}
         </flux:sidebar.item>

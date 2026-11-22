@@ -100,7 +100,7 @@ class RuleEvaluator
         $text = mb_strtolower(implode("\n", [$entry->title, $entry->summary, strip_tags((string) $entry->content)]));
         $title = mb_strtolower((string) $entry->title);
 
-        $check = fn (array $c) => $this->condition($c, $entry, $text, $title, $folderId);
+        $check = fn (array $c) => $this->condition($c, $entry, $text, $title, $folderId, $rule->user_id);
 
         return $rule->match === 'any' ? $conditions->contains($check) : $conditions->every($check);
     }
@@ -127,7 +127,7 @@ class RuleEvaluator
     }
 
     /** @param array{type?: string, value?: mixed} $c */
-    private function condition(array $c, Entry $entry, string $text, string $title, ?int $folderId): bool
+    private function condition(array $c, Entry $entry, string $text, string $title, ?int $folderId, ?int $userId = null): bool
     {
         $value = $c['value'] ?? null;
 
@@ -141,6 +141,11 @@ class RuleEvaluator
             'has_cve' => $entry->cves->isNotEmpty(),
             'cvss' => $entry->cves->contains(fn ($cve) => $cve->cvss_score !== null && $cve->cvss_score >= (float) $value),
             'kev' => $entry->cves->contains('in_kev', true),
+            'watchlist' => $userId !== null && DB::table('watchlist_hits')
+                ->join('watchlist_items', 'watchlist_items.id', '=', 'watchlist_hits.watchlist_item_id')
+                ->where('watchlist_items.user_id', $userId)
+                ->where('watchlist_hits.entry_id', $entry->id)
+                ->exists(),
             'sources' => ($entry->cluster->size ?? 1) >= max(2, (int) $value),
             default => false,
         };

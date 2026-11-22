@@ -6,6 +6,7 @@ use App\Services\Reader\EntryQuery;
 use App\Services\Reader\EntryStates;
 use App\Services\Reader\ReaderSource;
 use App\Services\Reader\TopStories;
+use App\Services\Watchlist\WatchlistMatcher;
 use Flux\Flux;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -70,6 +71,7 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
             'folder' => Auth::user()->folders()->find($source->id)?->name ?? __('Folder'),
             'tag' => '#'.(Auth::user()->tags()->find($source->id)?->name ?? __('Tag')),
             'top' => __('Top stories'),
+            'watchlist' => __('Your watchlist'),
             default => __('All stories'),
         };
     }
@@ -117,7 +119,14 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
     {
         $ids = $this->entries->pluck('id')->push($this->entryId)->filter()->unique()->values()->all();
 
-        return app(EntryQuery::class)->signalsFor($ids);
+        $signals = app(EntryQuery::class)->signalsFor($ids);
+        $watch = app(WatchlistMatcher::class)->labelsFor(Auth::user(), $ids);
+
+        foreach ($watch as $entryId => $labels) {
+            $signals[$entryId]['watch'] = $labels;
+        }
+
+        return $signals;
     }
 
     public function isTop(): bool

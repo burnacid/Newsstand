@@ -123,6 +123,9 @@ class WidgetContent
             case 'tag':
                 $query->whereIn('entries.id', $this->query->taggedEntryIds($owner, (int) ($config['tag_id'] ?? 0)));
                 break;
+            case 'watchlist':
+                $query->whereIn('entries.feed_id', $ownersFeeds)->whereIn('entries.id', $this->query->watchlistEntryIds($owner));
+                break;
             case 'starred':
                 $query->whereIn('entries.id', DB::table('entry_user')->select('entry_id')->where('user_id', $owner->id)->whereNotNull('starred_at'));
                 break;

@@ -6,6 +6,39 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-23
+
+### Added
+
+- **Watchlist** (sidebar → Watchlist): list the vendors and products you run (with optional other names). Newsstand
+  flags stories that concern them, either through the CVEs they mention (affected-product data from NVD and CISA KEV)
+  or because the story names the product. Suggestions come from the vendors and products Newsstand knows.
+- Watched stories get a violet badge, and the reader has a **Your watchlist** view.
+- **CVE pages** (`/security/cves/CVE-…`): severity, CISA exploitation status and deadline, description, affected
+  products and a timeline of every story about it in your feeds. CVE ids across Newsstand link here.
+- Vulnerabilities page: **My products** filter, including CVEs no story has mentioned yet.
+- New rule condition **Concerns my watchlist** and a **Watchlist stories** dashboard widget.
+
+### Changed
+
+- NVD lookups and the KEV sync now also store which products each CVE affects.
+- `php artisan security:enrich --all` re-checks every CVE mentioned in the last 30 days right away; the hourly run
+  also re-checks CVEs whose product data NVD hasn't published yet (weekly).
+
+### Fixed
+
+- **"419 Page Expired" when registering or signing in over plain HTTP.** The example config forced secure session
+  cookies (`SESSION_SECURE_COOKIE=true`), which browsers never send back over HTTP. The new default `auto` marks the
+  cookie secure only for HTTPS requests. If secure cookies are forced on over HTTP, the sign-in and registration
+  pages now say so instead of failing with 419.
+- The first account on a new install no longer has to verify its email address, so you aren't stuck when mail
+  isn't configured yet.
+
+### Upgrading
+
+- After upgrading, run `php artisan security:sync-kev` and `php artisan security:enrich --all` once to fill in product
+  data for existing CVEs (NVD lookups are rate limited, so this takes a few minutes in the background).
+
 ## [1.1.0] - 2026-11-23
 
 ### Added
@@ -71,7 +104,8 @@ First release.
 - Server-side fetches are protected against SSRF (private and reserved addresses refused, including after redirects).
 - The test suite refuses to run against a non-test database, so tests can never wipe real data.
 
-[Unreleased]: https://github.com/burnacid/Newsstand/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/burnacid/Newsstand/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/burnacid/Newsstand/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/burnacid/Newsstand/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/burnacid/Newsstand/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/burnacid/Newsstand/releases/tag/v1.0.0

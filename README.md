@@ -15,6 +15,8 @@ Built with Laravel 13, Livewire 4 and Flux. Runs on PostgreSQL (recommended), My
   full-text search (PostgreSQL: phrases, `-exclude`, `OR`); time filters.
 - **Security signals**: CVEs extracted from every story, CVSS scores from NVD, exploitation status from
   CISA's Known Exploited Vulnerabilities catalog; a Vulnerabilities page; Top stories ranked by coverage and severity.
+- **Watchlist**: the vendors and products you run; stories and CVEs that affect them are flagged, with a CVE page
+  per vulnerability (scores, exploitation, affected products, every story about it).
 - **Rules**: "when a story matches … then highlight / tag / star / save / mark read / mute", with presets for
   exploited and critical vulnerabilities.
 - **Dashboards**: widget pages (feeds, folders, searches, tags, top stories, vulnerabilities), shared with other
@@ -124,7 +126,7 @@ All Newsstand settings are in `config/newsstand.php`, most with an environment v
 |---|---|
 | `php artisan feeds:refresh {id?} --all` | Fetch feeds now (due feeds by default) |
 | `php artisan security:sync-kev` | Import CISA's KEV catalog (runs daily) |
-| `php artisan security:enrich` | Queue NVD lookups for unscored CVEs (runs hourly) |
+| `php artisan security:enrich [--all]` | Queue NVD lookups for scores and affected products (runs hourly) |
 | `php artisan signals:process --days=7` | Extract CVEs, group stories and run rules for older stories |
 | `php artisan digest:send --user=you@example.com --force` | Send a digest now |
 | `php artisan newsstand:user email [--admin]` | Create a user |

@@ -85,6 +85,40 @@ it('reads the version from the VERSION file and shows it', function () {
     $this->get('/')->assertSee("v{$version}");
 });
 
+// --- Session cookie over HTTP / HTTPS ---
+
+function sessionCookie($response)
+{
+    return collect($response->headers->getCookies())->first(fn ($c) => $c->getName() === config('session.cookie'));
+}
+
+it('only marks the session cookie secure for HTTPS requests in auto mode', function () {
+    config(['session.driver' => 'file', 'session.secure' => 'auto']);
+
+    expect(sessionCookie($this->get('http://localhost/login'))->isSecure())->toBeFalse();
+
+    config(['session.secure' => 'auto']);
+    expect(sessionCookie($this->get('https://localhost/login'))->isSecure())->toBeTrue();
+});
+
+it('respects an explicit secure setting and warns when it can\'t work', function () {
+    config(['session.driver' => 'file', 'session.secure' => true]);
+
+    $response = $this->get('http://localhost/register');
+    expect(sessionCookie($response)->isSecure())->toBeTrue();
+    $response->assertSee('Signing in won’t work over plain HTTP', false);
+
+    config(['session.secure' => true]);
+    $this->get('https://localhost/register')->assertDontSee('Signing in won’t work over plain HTTP', false);
+
+    config(['session.secure' => 'auto']);
+    $this->get('http://localhost/login')->assertDontSee('Signing in won’t work over plain HTTP', false);
+});
+
+it('defaults to auto', function () {
+    expect(config('session.secure'))->toBeIn(['auto', false]);
+});
+
 // --- Security headers ---
 
 it('sends security headers', function () {

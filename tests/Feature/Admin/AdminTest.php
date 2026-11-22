@@ -20,7 +20,10 @@ it('makes the first registered account an admin, and later ones not', function (
     }
 
     expect(User::where('email', 'first@example.com')->value('is_admin'))->toBeTrue()
-        ->and(User::where('email', 'second@example.com')->value('is_admin'))->toBeFalse();
+        ->and(User::where('email', 'second@example.com')->value('is_admin'))->toBeFalse()
+        // The first account skips email verification (mail is often not set up yet); later ones don't.
+        ->and(User::where('email', 'first@example.com')->value('email_verified_at'))->not->toBeNull()
+        ->and(User::where('email', 'second@example.com')->value('email_verified_at'))->toBeNull();
 });
 
 it('creates admins and changes admin rights from the command line', function () {

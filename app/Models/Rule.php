@@ -20,6 +20,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  *   cvss         a mentioned CVE has CVSS >= value
  *   kev          a mentioned CVE is actively exploited (CISA KEV)
  *   sources      covered by at least value feeds
+ *   watchlist    concerns something on the owner's watchlist
  *
  * Actions: ['highlight' => color|null, 'tag_id' => int|null, 'star' => bool,
  *           'later' => bool, 'read' => bool, 'mute' => bool]
@@ -37,7 +38,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable(['name', 'enabled', 'match', 'conditions', 'actions', 'position'])]
 class Rule extends Model
 {
-    public const CONDITION_TYPES = ['keyword', 'not_keyword', 'title', 'regex', 'feed', 'folder', 'has_cve', 'cvss', 'kev', 'sources'];
+    public const CONDITION_TYPES = ['keyword', 'not_keyword', 'title', 'regex', 'feed', 'folder', 'has_cve', 'cvss', 'kev', 'sources', 'watchlist'];
 
     public const HIGHLIGHTS = ['red', 'orange', 'amber', 'emerald', 'blue', 'violet'];
 
@@ -59,6 +60,6 @@ class Rule extends Model
     /** Whether evaluating this rule needs CVE / cluster data that may arrive later. */
     public function dependsOnSignals(): bool
     {
-        return collect($this->conditions)->contains(fn ($c) => in_array($c['type'] ?? null, ['has_cve', 'cvss', 'kev', 'sources'], true));
+        return collect($this->conditions)->contains(fn ($c) => in_array($c['type'] ?? null, ['has_cve', 'cvss', 'kev', 'sources', 'watchlist'], true));
     }
 }

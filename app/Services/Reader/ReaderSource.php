@@ -8,7 +8,7 @@ namespace App\Services\Reader;
  */
 final readonly class ReaderSource
 {
-    public const TYPES = ['all', 'starred', 'later', 'feed', 'folder', 'tag', 'top'];
+    public const TYPES = ['all', 'starred', 'later', 'feed', 'folder', 'tag', 'top', 'watchlist'];
 
     private function __construct(
         public string $type,
@@ -23,7 +23,7 @@ final readonly class ReaderSource
             return new self($m[1], (int) $m[2]);
         }
 
-        return in_array($value, ['starred', 'later', 'top'], true) ? new self($value) : new self('all');
+        return in_array($value, ['starred', 'later', 'top', 'watchlist'], true) ? new self($value) : new self('all');
     }
 
     public static function all(): self

@@ -60,6 +60,7 @@ new #[Layout('layouts::public')] #[Title('Shared dashboard')] class extends Comp
             'cves' => __('Vulnerabilities'),
             'search' => __('Search: :q', ['q' => $widget->config['query'] ?? '']),
             'starred' => __('Starred'),
+            'watchlist' => __('Watchlist'),
             default => Str::headline($widget->type),
         };
     }

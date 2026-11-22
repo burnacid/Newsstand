@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Cve;
+use App\Services\Watchlist\WatchlistMatcher;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Auth;
@@ -18,7 +19,7 @@ use Livewire\WithPagination;
 new #[Title('Vulnerabilities')] class extends Component {
     use WithPagination;
 
-    /** mentioned | kev | critical | high | kev_new */
+    /** mentioned | kev | critical | high | kev_new | mine */
     #[Url(except: 'mentioned')]
     public string $filter = 'mentioned';
 
@@ -49,7 +50,14 @@ new #[Title('Vulnerabilities')] class extends Component {
 
         $query = Cve::query();
 
-        if ($this->filter === 'kev_new') {
+        if ($this->filter === 'mine') {
+            // Everything affecting watched products, mentioned in a story or not.
+            $query->whereIn('cves.id', app(WatchlistMatcher::class)->cveIdsFor($user))
+                ->leftJoinSub($mentions, 'm', 'm.cve_id', '=', 'cves.id')
+                ->orderByDesc('in_kev')
+                ->orderByRaw('cvss_score is null, cvss_score desc')
+                ->orderByDesc('cves.id');
+        } elseif ($this->filter === 'kev_new') {
             $query->where('in_kev', true)->where('kev_added_on', '>=', now()->subDays(14)->toDateString())
                 ->leftJoinSub($mentions, 'm', 'm.cve_id', '=', 'cves.id')
                 ->orderByDesc('kev_added_on');
@@ -139,6 +147,7 @@ new #[Title('Vulnerabilities')] class extends Component {
             <flux:radio value="critical" :label="__('Critical')" />
             <flux:radio value="high" :label="__('High+')" />
             <flux:radio value="kev_new" :label="__('New in KEV')" />
+            <flux:radio value="mine" :label="__('My products')" data-test="filter-mine" />
         </flux:radio.group>
 
         <flux:spacer />
@@ -158,7 +167,7 @@ new #[Title('Vulnerabilities')] class extends Component {
         @forelse ($this->cves as $cve)
             <div class="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-800/60" wire:key="cve-{{ $cve->id }}">
                 <div class="flex flex-wrap items-center gap-2">
-                    <a href="{{ $cve->nvdUrl() }}" target="_blank" rel="noopener noreferrer" class="font-mono text-sm font-semibold hover:underline">{{ $cve->cve_id }}</a>
+                    <a href="{{ route('security.cve', $cve->cve_id) }}" wire:navigate class="font-mono text-sm font-semibold hover:underline">{{ $cve->cve_id }}</a>
                     @if ($cve->cvss_score !== null)
                         <flux:badge size="sm" :color="$cve->color()">{{ ucfirst($cve->severity) }} {{ number_format($cve->cvss_score, 1) }}</flux:badge>
                     @else

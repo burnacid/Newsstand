@@ -64,17 +64,21 @@ Artisan::command('security:sync-kev', function (KevSync $kev) {
     $this->info("KEV catalog: {$result['total']} known exploited vulnerabilities ({$result['new']} new).");
 })->purpose('Import CISA\'s Known Exploited Vulnerabilities catalog');
 
-Artisan::command('security:enrich {--all : Also re-check CVEs that already have a score}', function () {
-    // New CVEs often have no score yet; NVD adds one within days.
+Artisan::command('security:enrich {--all : Re-check every CVE mentioned in the last 30 days, now}', function () {
     $cves = Cve::query()
-        ->when(! $this->option('all'), fn ($q) => $q->whereNull('cvss_score'))
-        ->where(fn ($q) => $q->whereNull('nvd_checked_at')->orWhere('nvd_checked_at', '<', now()->subHours(20)))
         ->whereHas('entries', fn ($q) => $q->where('published_at', '>=', now()->subDays(30)))
+        ->when(! $this->option('all'), fn ($q) => $q->where(fn ($q) => $q
+            // New CVEs often have no score yet; NVD adds one within days. Check daily.
+            ->where(fn ($q) => $q->whereNull('cvss_score')
+                ->where(fn ($q) => $q->whereNull('nvd_checked_at')->orWhere('nvd_checked_at', '<', now()->subHours(20))))
+            // Affected-product data (for watchlists) often arrives later. Check weekly.
+            ->orWhere(fn ($q) => $q->whereDoesntHave('products', fn ($q) => $q->where('source', 'nvd'))
+                ->where(fn ($q) => $q->whereNull('nvd_checked_at')->orWhere('nvd_checked_at', '<', now()->subWeek())))))
         ->get();
 
     $cves->each(fn (Cve $cve) => EnrichCve::dispatch($cve));
     $this->info("Queued {$cves->count()} CVE lookup(s).");
-})->purpose('Queue NVD lookups for CVEs without a CVSS score');
+})->purpose('Queue NVD lookups for CVEs without a score or product data');
 
 Artisan::command('signals:process {--days=7 : How far back}', function () {
     $ids = Entry::where('signals_processed', false)->where('published_at', '>=', now()->subDays((int) $this->option('days')))->pluck('id');

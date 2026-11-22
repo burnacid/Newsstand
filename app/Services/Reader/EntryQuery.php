@@ -42,6 +42,7 @@ class EntryQuery
             'starred' => $query->whereNotNull('eu.starred_at'),
             'later' => $query->whereNotNull('eu.read_later_at'),
             'tag' => $query->whereIn('entries.id', $this->taggedEntryIds($user, $source->id)),
+            'watchlist' => $query->whereIn('entries.feed_id', $this->subscribedFeedIds($user))->whereIn('entries.id', $this->watchlistEntryIds($user)),
             'feed' => $query->whereIn('entries.feed_id', $this->subscribedFeedIds($user))->where('entries.feed_id', $source->id),
             'folder' => $query->whereIn('entries.feed_id', $this->subscribedFeedIds($user, $source->id)),
             default => $query->whereIn('entries.feed_id', $this->subscribedFeedIds($user)),
@@ -238,6 +239,14 @@ class EntryQuery
             ->select('feed_id')
             ->where('user_id', $user->id)
             ->when($folderId !== null, fn (QueryBuilder $q) => $q->where('folder_id', $folderId));
+    }
+
+    public function watchlistEntryIds(User $user): QueryBuilder
+    {
+        return DB::table('watchlist_hits')
+            ->select('watchlist_hits.entry_id')
+            ->join('watchlist_items', 'watchlist_items.id', '=', 'watchlist_hits.watchlist_item_id')
+            ->where('watchlist_items.user_id', $user->id);
     }
 
     public function taggedEntryIds(User $user, ?int $tagId = null): QueryBuilder

@@ -118,7 +118,7 @@ new #[Title('Rules')] class extends Component {
             $this->conditions[$index]['value'] = match ($value) {
                 'cvss' => 9,
                 'sources' => 3,
-                'has_cve', 'kev' => null,
+                'has_cve', 'kev', 'watchlist' => null,
                 default => '',
             };
         }
@@ -256,6 +256,7 @@ new #[Title('Rules')] class extends Component {
             'has_cve' => __('mentions a CVE'),
             'cvss' => __('CVSS ≥ :v', ['v' => $c['value']]),
             'kev' => __('actively exploited'),
+            'watchlist' => __('on my watchlist'),
             'sources' => __(':v+ sources', ['v' => $c['value']]),
             default => $c['type'],
         })->implode($rule->match === 'any' ? ' '.__('or').' ' : ' '.__('and').' ');
@@ -355,6 +356,7 @@ new #[Title('Rules')] class extends Component {
                             <flux:select.option value="cvss">{{ __('CVSS score at least') }}</flux:select.option>
                             <flux:select.option value="kev">{{ __('Actively exploited (KEV)') }}</flux:select.option>
                             <flux:select.option value="sources">{{ __('Covered by at least') }}</flux:select.option>
+                            <flux:select.option value="watchlist">{{ __('Concerns my watchlist') }}</flux:select.option>
                         </flux:select>
 
                         <div class="min-w-0 flex-1">
@@ -381,6 +383,7 @@ new #[Title('Rules')] class extends Component {
                                     @break
                                 @case('has_cve')
                                 @case('kev')
+                                @case('watchlist')
                                     <div class="py-1.5 text-sm text-zinc-500">{{ __('No value needed.') }}</div>
                                     @break
                                 @default

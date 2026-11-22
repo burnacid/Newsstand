@@ -147,6 +147,7 @@ new #[Title('Dashboard')] class extends Component {
             'search' => __('Search: :q', ['q' => $c['query'] ?? '']),
             'starred' => __('Starred by :name', ['name' => $this->dashboard->owner->name]),
             'top' => __('Top stories'),
+            'watchlist' => __(':name’s watchlist', ['name' => $this->dashboard->owner->name]),
             'cves' => match ($c['filter'] ?? 'kev') {
                 'critical' => __('Critical vulnerabilities'),
                 'mentioned' => __('Vulnerabilities in the news'),
@@ -457,7 +458,7 @@ new #[Title('Dashboard')] class extends Component {
                 <div class="flex-1 divide-y divide-zinc-100 dark:divide-zinc-700/60">
                     @if ($widget->type === 'cves')
                         @forelse ($items as $cve)
-                            <a href="{{ $cve->nvdUrl() }}" target="_blank" rel="noopener noreferrer" class="flex items-center gap-2 px-4 py-2.5 hover:bg-zinc-50 dark:hover:bg-zinc-800">
+                            <a href="{{ route('security.cve', $cve->cve_id) }}" wire:navigate class="flex items-center gap-2 px-4 py-2.5 hover:bg-zinc-50 dark:hover:bg-zinc-800">
                                 <span class="font-mono text-xs font-medium">{{ $cve->cve_id }}</span>
                                 @if ($cve->cvss_score !== null)
                                     <flux:badge size="sm" :color="$cve->color()">{{ number_format($cve->cvss_score, 1) }}</flux:badge>
@@ -518,6 +519,7 @@ new #[Title('Dashboard')] class extends Component {
                     <flux:select.option value="starred">{{ __('Starred stories') }}</flux:select.option>
                     <flux:select.option value="top">{{ __('Top stories') }}</flux:select.option>
                     <flux:select.option value="cves">{{ __('Vulnerabilities') }}</flux:select.option>
+                    <flux:select.option value="watchlist">{{ __('Watchlist stories') }}</flux:select.option>
                 </flux:select>
 
                 @switch($wType)
