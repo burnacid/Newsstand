@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Users\CreateUser;
 use App\Jobs\EnrichCve;
 use App\Jobs\FetchFeed;
 use App\Jobs\ProcessEntrySignals;
@@ -8,6 +9,7 @@ use App\Mail\DailyDigest;
 use App\Models\Cve;
 use App\Models\Entry;
 use App\Models\Feed;
+use App\Models\Setting;
 use App\Models\StoryCluster;
 use App\Models\User;
 use App\Services\Digest\DigestBuilder;
@@ -58,6 +60,7 @@ Artisan::command('entries:prune', function () {
 
 Artisan::command('security:sync-kev', function (KevSync $kev) {
     $result = $kev->sync();
+    Setting::set('kev.last_synced_at', now()->toIso8601String());
     $this->info("KEV catalog: {$result['total']} known exploited vulnerabilities ({$result['new']} new).");
 })->purpose('Import CISA\'s Known Exploited Vulnerabilities catalog');
 
@@ -80,35 +83,54 @@ Artisan::command('signals:process {--days=7 : How far back}', function () {
     $this->info("Queued {$ids->count()} stories for CVE extraction, clustering and rules.");
 })->purpose('Find CVEs, group stories and run rules for stories not processed yet');
 
-Artisan::command('newsstand:user {email} {--name= : Display name} {--password= : Leave empty to generate one}', function () {
-    $email = is_string($arg = $this->argument('email')) ? Str::lower(trim($arg)) : '';
-
-    if (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        $this->error('That is not a valid email address.');
-
-        return 1;
-    }
-
-    if (User::where('email', $email)->exists()) {
-        $this->error("A user with {$email} already exists.");
-
-        return 1;
-    }
-
-    $given = $this->option('password');
-    $password = is_string($given) && $given !== '' ? $given : Str::password(20);
+Artisan::command('newsstand:user {email} {--name= : Display name} {--password= : Leave empty to generate one} {--admin : Make them an administrator}', function (CreateUser $create) {
+    $email = $this->argument('email');
     $name = $this->option('name');
-    $user = User::create(['name' => is_string($name) && $name !== '' ? $name : Str::before($email, '@'), 'email' => $email, 'password' => $password]);
-    $user->forceFill(['email_verified_at' => now()])->save();
+    $given = $this->option('password');
 
-    $this->info("Created {$user->name} <{$email}>.");
-    if (! $this->option('password')) {
+    try {
+        [$user, $password] = $create->handle(
+            is_string($email) ? $email : '',
+            is_string($name) ? $name : null,
+            is_string($given) ? $given : null,
+            (bool) $this->option('admin'),
+        );
+    } catch (InvalidArgumentException $e) {
+        $this->error($e->getMessage());
+
+        return 1;
+    }
+
+    $this->info("Created {$user->name} <{$user->email}>".($user->isAdmin() ? ' (admin)' : '').'.');
+    if (! $given) {
         $this->line("Password: {$password}");
         $this->comment('Ask them to change it under Settings → Security.');
     }
 
     return 0;
 })->purpose('Create a user (for when registration is closed)');
+
+Artisan::command('newsstand:admin {email} {--revoke : Remove admin rights instead}', function () {
+    $email = is_string($arg = $this->argument('email')) ? Str::lower(trim($arg)) : '';
+    $user = User::whereRaw('lower(email) = ?', [$email])->first();
+
+    if (! $user) {
+        $this->error("No user with {$email}.");
+
+        return 1;
+    }
+
+    if ($this->option('revoke') && $user->isAdmin() && User::activeAdminCount() <= 1) {
+        $this->error('That is the last administrator. Make someone else admin first.');
+
+        return 1;
+    }
+
+    $user->forceFill(['is_admin' => ! $this->option('revoke')])->save();
+    $this->info($user->isAdmin() ? "{$user->name} is now an administrator." : "{$user->name} is no longer an administrator.");
+
+    return 0;
+})->purpose('Grant or revoke administrator rights');
 
 Artisan::command('digest:send {--user= : Only this user (email)} {--force : Ignore the hour and the once-a-day limit}', function (DigestBuilder $builder) {
     $users = User::query()
@@ -146,6 +168,8 @@ Artisan::command('signals:scan-articles {--days=7 : How far back}', function () 
 })->purpose('Fetch articles of teaser-only stories once to find the CVEs they mention');
 
 Schedule::command('feeds:dispatch-due')->everyMinute()->withoutOverlapping();
+// Heartbeat for Admin → Health: shows whether the scheduler is running.
+Schedule::call(fn () => Setting::set('scheduler.last_run_at', now()->toIso8601String()))->everyMinute()->name('scheduler-heartbeat');
 Schedule::command('digest:send')->hourlyAt(0);
 Schedule::command('security:sync-kev')->dailyAt('06:15');
 Schedule::command('security:enrich')->hourly();

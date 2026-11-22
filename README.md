@@ -76,10 +76,13 @@ The app listens on port `8080` (`APP_PORT`). Put a TLS-terminating reverse proxy
 when the app container starts.
 
 **First user:** with `NEWSSTAND_REGISTRATION=closed` (the production default) only the first account can sign
-up; that's you. With `disabled` nobody can sign up, not even the first account. Either way, add users with:
+up; that's you, and the first account is the administrator. With `disabled` nobody can sign up, not even the first
+account. Admins manage everything under **Administration** in the sidebar (users, registration, system health, and
+the Horizon queue dashboard at `/horizon`). From the command line:
 
 ```bash
 docker compose --env-file .env.production -f docker-compose.production.yml exec -u www-data app php artisan newsstand:user colleague@example.com --name="Colleague"
+docker compose --env-file .env.production -f docker-compose.production.yml exec -u www-data app php artisan newsstand:admin you@example.com
 ```
 
 **Storage:** `/app/storage` can be a named volume (the default) or a host folder (`./storage:/app/storage`).
@@ -124,7 +127,8 @@ All Newsstand settings are in `config/newsstand.php`, most with an environment v
 | `php artisan security:enrich` | Queue NVD lookups for unscored CVEs (runs hourly) |
 | `php artisan signals:process --days=7` | Extract CVEs, group stories and run rules for older stories |
 | `php artisan digest:send --user=you@example.com --force` | Send a digest now |
-| `php artisan newsstand:user email` | Create a user |
+| `php artisan newsstand:user email [--admin]` | Create a user |
+| `php artisan newsstand:admin email [--revoke]` | Grant or remove administrator rights |
 | `php artisan entries:prune` | Delete old stories (runs nightly) |
 
 ## Security notes

@@ -4,13 +4,16 @@ namespace App\Providers;
 
 use App\Actions\Fortify\CreateNewUser;
 use App\Actions\Fortify\ResetUserPassword;
+use App\Models\User;
 use App\Support\Registration;
 use Illuminate\Auth\Middleware\RequirePassword;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Laravel\Fortify\Fortify;
 use Livewire\Livewire;
 
@@ -52,6 +55,24 @@ class FortifyServiceProvider extends ServiceProvider
     {
         Fortify::resetUserPasswordsUsing(ResetUserPassword::class);
         Fortify::createUsersUsing(CreateNewUser::class);
+
+        // Password login, refusing disabled accounts. (Passkey sessions and already
+        // signed-in users are handled by the EnsureAccountIsActive middleware.)
+        Fortify::authenticateUsing(function (Request $request) {
+            $user = User::whereRaw('lower(email) = ?', [Str::lower((string) $request->input(Fortify::username()))])->first();
+
+            if (! $user || ! Hash::check((string) $request->input('password'), $user->password)) {
+                return null;
+            }
+
+            if ($user->isDisabled()) {
+                throw ValidationException::withMessages([
+                    Fortify::username() => __('This account has been disabled. Contact your administrator.'),
+                ]);
+            }
+
+            return $user;
+        });
     }
 
     /**

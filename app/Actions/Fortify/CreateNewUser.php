@@ -28,10 +28,19 @@ class CreateNewUser implements CreatesNewUsers
             'password' => $this->passwordRules(),
         ])->validate();
 
-        return User::create([
+        $first = ! User::query()->exists();
+
+        $user = User::create([
             'name' => $input['name'],
             'email' => $input['email'],
             'password' => $input['password'],
         ]);
+
+        // The very first account administers the install.
+        if ($first) {
+            $user->forceFill(['is_admin' => true])->save();
+        }
+
+        return $user;
     }
 }

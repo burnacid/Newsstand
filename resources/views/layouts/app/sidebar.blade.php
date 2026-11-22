@@ -27,6 +27,11 @@
                 <flux:sidebar.item icon="rss" :href="route('feeds.index')" :current="request()->routeIs('feeds.*')" wire:navigate>
                     {{ __('Manage feeds') }}
                 </flux:sidebar.item>
+                @can('admin')
+                    <flux:sidebar.item icon="shield-check" :href="route('admin.users')" :current="request()->routeIs('admin.*')" wire:navigate data-test="admin-link">
+                        {{ __('Administration') }}
+                    </flux:sidebar.item>
+                @endcan
             </flux:sidebar.nav>
 
             <div class="px-3 text-[0.7rem] text-zinc-400 dark:text-zinc-500" title="{{ __('Newsstand version') }}">v{{ config('newsstand.version') }}</div>

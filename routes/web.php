@@ -25,6 +25,13 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('feeds/export', OpmlExportController::class)->name('feeds.export');
 });
 
+Route::middleware(['auth', 'verified', 'can:admin'])->prefix('admin')->name('admin.')->group(function () {
+    Route::redirect('/', '/admin/users')->name('index');
+    Route::livewire('users', 'pages::admin.users')->name('users');
+    Route::livewire('settings', 'pages::admin.settings')->name('settings');
+    Route::livewire('health', 'pages::admin.health')->name('health');
+});
+
 // Public read-only dashboards (no login). Rate limited; tokens are 40 random characters.
 Route::livewire('d/{token}', 'pages::dashboards.public')->middleware('throttle:60,1')->name('dashboards.public');
 

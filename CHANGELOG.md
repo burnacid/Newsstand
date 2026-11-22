@@ -6,6 +6,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-23
+
+### Added
+
+- **Administration** (sidebar → Administration, admins only):
+  - *Users*: create accounts (with a one-time generated password), grant or remove admin rights, disable or
+    re-enable accounts, delete users with their data.
+  - *Settings*: choose who can register (anyone / only the first account / nobody); overrides `NEWSSTAND_REGISTRATION`.
+  - *Health*: scheduler heartbeat, queue backlog, failed jobs (retry or delete), feeds with errors (fetch again),
+    CISA KEV sync age, CVEs waiting for an NVD score, totals.
+- Admins can open the Horizon queue dashboard at `/horizon`.
+- `php artisan newsstand:admin email [--revoke]` and `php artisan newsstand:user email --admin`.
+
+### Changed
+
+- The first account on an install is an administrator. On upgrade, the oldest existing account becomes admin.
+- Disabled accounts can't sign in, and anyone already signed in is signed out on their next request.
+- The last administrator can't be demoted, disabled or deleted.
+
 ## [1.0.1] - 2026-11-22
 
 ### Fixed
@@ -52,6 +71,7 @@ First release.
 - Server-side fetches are protected against SSRF (private and reserved addresses refused, including after redirects).
 - The test suite refuses to run against a non-test database, so tests can never wipe real data.
 
-[Unreleased]: https://github.com/burnacid/Newsstand/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/burnacid/Newsstand/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/burnacid/Newsstand/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/burnacid/Newsstand/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/burnacid/Newsstand/releases/tag/v1.0.0
