@@ -21,13 +21,26 @@
                 <flux:sidebar.item icon="shield-exclamation" :href="route('security')" :current="request()->routeIs('security')" wire:navigate>
                     {{ __('Vulnerabilities') }}
                 </flux:sidebar.item>
+                <flux:sidebar.item icon="eye" :href="route('watchlist')" :current="request()->routeIs('watchlist')" wire:navigate>
+                    {{ __('Watchlist') }}
+                </flux:sidebar.item>
                 <flux:sidebar.item icon="adjustments-horizontal" :href="route('rules')" :current="request()->routeIs('rules')" wire:navigate>
                     {{ __('Rules') }}
+                </flux:sidebar.item>
+                <flux:sidebar.item icon="user-group" :href="route('teams.index')" :current="request()->routeIs('teams.*')" wire:navigate data-test="teams-link">
+                    {{ __('Teams') }}
                 </flux:sidebar.item>
                 <flux:sidebar.item icon="rss" :href="route('feeds.index')" :current="request()->routeIs('feeds.*')" wire:navigate>
                     {{ __('Manage feeds') }}
                 </flux:sidebar.item>
+                @can('admin')
+                    <flux:sidebar.item icon="shield-check" :href="route('admin.users')" :current="request()->routeIs('admin.*')" wire:navigate data-test="admin-link">
+                        {{ __('Administration') }}
+                    </flux:sidebar.item>
+                @endcan
             </flux:sidebar.nav>
+
+            <div class="px-3 text-[0.7rem] text-zinc-400 dark:text-zinc-500" title="{{ __('Newsstand version') }}">v{{ config('newsstand.version') }}</div>
 
             <x-desktop-user-menu class="hidden lg:block" :name="auth()->user()->name" />
         </flux:sidebar>

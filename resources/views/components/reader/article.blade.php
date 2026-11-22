@@ -87,6 +87,10 @@
 
         <x-reader.signals :signals="$signals" variant="full" />
 
+        @auth
+            <livewire:reader.notes :entry-id="$entry->id" :key="'notes-'.$entry->id" />
+        @endauth
+
         <div @class(['flex flex-wrap items-center gap-2 pt-6 text-zinc-300 dark:text-zinc-700', 'rule-double mt-12' => ! $river, 'mt-8' => $river])>
             @if ($river)
                 <flux:button size="sm" wire:click="expand({{ $entry->id }})" icon:trailing="chevron-up">{{ __('Show less') }}</flux:button>

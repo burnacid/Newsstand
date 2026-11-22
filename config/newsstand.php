@@ -8,11 +8,15 @@ return [
     |--------------------------------------------------------------------------
     |
     | "open": anyone can create an account. "closed": only the first account
-    | (your admin); add others with `php artisan newsstand:user`.
+    | (your admin). "disabled": no sign-ups at all. Add users with
+    | `php artisan newsstand:user`.
     |
     */
 
     'registration' => env('NEWSSTAND_REGISTRATION', 'open'),
+
+    // Single source of truth for the release version: the VERSION file.
+    'version' => trim((string) @file_get_contents(base_path('VERSION'))) ?: 'dev',
 
     /*
     |--------------------------------------------------------------------------
@@ -89,6 +93,23 @@ return [
 
         // Fetch the article of teaser-only stories once to find the CVEs it mentions.
         'scan_articles' => (bool) env('NEWSSTAND_SCAN_ARTICLES', true),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Alerts
+    |--------------------------------------------------------------------------
+    |
+    | Alert destinations (webhooks, ntfy, Gotify) are checked like feed URLs.
+    | Allow private/LAN addresses for self-hosted ntfy or Gotify; admins can
+    | also change this under Administration → Settings.
+    |
+    */
+
+    'alerts' => [
+        'allow_private' => (bool) env('NEWSSTAND_ALERTS_ALLOW_PRIVATE', false),
+        // Only stories published this recently trigger alerts (no alerts for old news found later).
+        'max_story_age_days' => 7,
     ],
 
     /*

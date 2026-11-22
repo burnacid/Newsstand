@@ -4,6 +4,8 @@ namespace App\Services\Security;
 
 use App\Exceptions\NvdRateLimited;
 use App\Models\Cve;
+use App\Models\CveProduct;
+use App\Support\ProductName;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
@@ -49,7 +51,29 @@ class NvdClient
             'published_at' => $data['published'] ?? null,
         ])->save();
 
+        CveProduct::record($cve->id, $this->products(is_array($data['configurations'] ?? null) ? $data['configurations'] : []), 'nvd');
+
         return true;
+    }
+
+    /**
+     * Affected vendor/product pairs from the CPE entries in NVD's configurations.
+     *
+     * @param  array<int|string, mixed>  $configurations
+     * @return list<array{0: string, 1: string}>
+     */
+    private function products(array $configurations): array
+    {
+        $pairs = [];
+
+        array_walk_recursive($configurations, function ($value, $key) use (&$pairs) {
+            if ($key === 'criteria' && is_string($value) && ($pair = ProductName::fromCpe($value))) {
+                $pairs[ProductName::key($pair[0]).':'.ProductName::key($pair[1])] = $pair;
+            }
+        });
+
+        // A handful of CVEs list hundreds of products; keep it bounded.
+        return array_slice(array_values($pairs), 0, 100);
     }
 
     /**

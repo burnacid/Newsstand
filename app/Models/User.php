@@ -29,6 +29,8 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
  * @property string|null $remember_token
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
+ * @property bool $is_admin
+ * @property Carbon|null $disabled_at
  */
 #[Fillable(['name', 'email', 'password'])]
 #[Hidden(['password', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token'])]
@@ -49,6 +51,8 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
             'password' => 'hashed',
             'digest_enabled' => 'boolean',
             'digest_sent_on' => 'date',
+            'is_admin' => 'boolean',
+            'disabled_at' => 'datetime',
         ];
     }
 
@@ -80,6 +84,34 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
         return $this->belongsToMany(Dashboard::class)->withPivot('role')->withTimestamps()->orderBy('name');
     }
 
+    /** @return BelongsToMany<Team, $this> */
+    public function teams(): BelongsToMany
+    {
+        return $this->belongsToMany(Team::class)->withPivot('role')->withTimestamps()->orderBy('name');
+    }
+
+    /**
+     * Teams this user can manage (owner or admin).
+     *
+     * @return BelongsToMany<Team, $this>
+     */
+    public function managedTeams(): BelongsToMany
+    {
+        return $this->teams()->wherePivotIn('role', ['owner', 'admin']);
+    }
+
+    /** @return HasMany<AlertChannel, $this> */
+    public function alertChannels(): HasMany
+    {
+        return $this->hasMany(AlertChannel::class)->orderBy('name');
+    }
+
+    /** @return HasMany<WatchlistItem, $this> */
+    public function watchlist(): HasMany
+    {
+        return $this->hasMany(WatchlistItem::class)->orderBy('vendor')->orderBy('product');
+    }
+
     /** @return HasMany<Rule, $this> */
     public function rules(): HasMany
     {
@@ -104,6 +136,22 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
         return $this->belongsToMany(Entry::class)
             ->withPivot(['read_at', 'starred_at', 'read_later_at', 'highlight', 'muted_at'])
             ->withTimestamps();
+    }
+
+    public function isAdmin(): bool
+    {
+        return (bool) $this->is_admin;
+    }
+
+    public function isDisabled(): bool
+    {
+        return $this->disabled_at !== null;
+    }
+
+    /** Admins who can still sign in. */
+    public static function activeAdminCount(): int
+    {
+        return static::query()->where('is_admin', true)->whereNull('disabled_at')->count();
     }
 
     /**

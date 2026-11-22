@@ -5,9 +5,12 @@ namespace App\Services\Rules;
 use App\Models\Entry;
 use App\Models\Rule;
 use App\Models\User;
+use App\Services\Alerts\AlertDispatcher;
+use App\Services\Alerts\AlertMessage;
 use App\Services\Reader\EntryQuery;
 use App\Services\Reader\EntryStates;
 use App\Services\Reader\ReaderSource;
+use App\Services\Teams\FeedAccess;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -19,6 +22,9 @@ use Illuminate\Support\Facades\DB;
  */
 class RuleEvaluator
 {
+    /** Whether matching rules may send alerts (off while back-filling). */
+    private bool $notify = true;
+
     public function __construct(private EntryStates $states) {}
 
     /**
@@ -37,23 +43,22 @@ class RuleEvaluator
         $applied = 0;
 
         foreach ($entries->groupBy('feed_id') as $feedId => $feedEntries) {
-            $subscriptions = DB::table('subscriptions')->where('feed_id', $feedId)->get(['user_id', 'folder_id']);
-
-            foreach ($subscriptions as $subscription) {
-                $rules = Rule::where('user_id', $subscription->user_id)->where('enabled', true)->orderBy('position')->get();
+            // Personal subscribers and members of teams that follow the feed.
+            foreach (FeedAccess::readersOf((int) $feedId) as $userId => $folderId) {
+                $rules = Rule::where('user_id', $userId)->where('enabled', true)->orderBy('position')->get();
 
                 if ($rules->isEmpty()) {
                     continue;
                 }
 
-                $user = User::query()->whereKey($subscription->user_id)->first();
+                $user = User::query()->whereKey($userId)->first();
 
                 if (! $user) {
                     continue;
                 }
 
                 foreach ($feedEntries as $entry) {
-                    $applied += $this->evaluate($user, $rules, $entry, $subscription->folder_id);
+                    $applied += $this->evaluate($user, $rules, $entry, $folderId);
                 }
             }
         }
@@ -68,8 +73,21 @@ class RuleEvaluator
      */
     public function applyToRecent(Rule $rule, int $days = 30): int
     {
+        // Back-filling: apply highlights/tags/etc., but don't send alerts about old news.
+        $this->notify = false;
+
+        try {
+            return $this->backfill($rule, $days);
+        } finally {
+            $this->notify = true;
+        }
+    }
+
+    private function backfill(Rule $rule, int $days): int
+    {
         $user = $rule->user;
-        $folders = DB::table('subscriptions')->where('user_id', $user->id)->pluck('folder_id', 'feed_id');
+        // Team folders first, so the user's own folder wins for feeds in both.
+        $folders = FeedAccess::subscriptions($user)->orderByRaw('subscriptions.user_id is not null')->pluck('folder_id', 'feed_id');
 
         $applied = 0;
 
@@ -100,7 +118,7 @@ class RuleEvaluator
         $text = mb_strtolower(implode("\n", [$entry->title, $entry->summary, strip_tags((string) $entry->content)]));
         $title = mb_strtolower((string) $entry->title);
 
-        $check = fn (array $c) => $this->condition($c, $entry, $text, $title, $folderId);
+        $check = fn (array $c) => $this->condition($c, $entry, $text, $title, $folderId, $rule->user_id);
 
         return $rule->match === 'any' ? $conditions->contains($check) : $conditions->every($check);
     }
@@ -127,7 +145,7 @@ class RuleEvaluator
     }
 
     /** @param array{type?: string, value?: mixed} $c */
-    private function condition(array $c, Entry $entry, string $text, string $title, ?int $folderId): bool
+    private function condition(array $c, Entry $entry, string $text, string $title, ?int $folderId, ?int $userId = null): bool
     {
         $value = $c['value'] ?? null;
 
@@ -141,6 +159,13 @@ class RuleEvaluator
             'has_cve' => $entry->cves->isNotEmpty(),
             'cvss' => $entry->cves->contains(fn ($cve) => $cve->cvss_score !== null && $cve->cvss_score >= (float) $value),
             'kev' => $entry->cves->contains('in_kev', true),
+            'watchlist' => $userId !== null && DB::table('watchlist_hits')
+                ->join('watchlist_items', 'watchlist_items.id', '=', 'watchlist_hits.watchlist_item_id')
+                ->where(fn ($q) => $q
+                    ->where('watchlist_items.user_id', $userId)
+                    ->orWhereIn('watchlist_items.team_id', DB::table('team_user')->select('team_id')->where('user_id', $userId)))
+                ->where('watchlist_hits.entry_id', $entry->id)
+                ->exists(),
             'sources' => ($entry->cluster->size ?? 1) >= max(2, (int) $value),
             default => false,
         };
@@ -165,6 +190,15 @@ class RuleEvaluator
 
         if (! empty($actions['tag_id']) && ($tag = $user->tags()->whereKey((int) $actions['tag_id'])->first())) {
             $tag->entries()->syncWithoutDetaching([$entry->id => ['created_at' => $now]]);
+        }
+
+        // Alerts only for live, recent stories, never while back-filling a new rule.
+        $recent = $entry->published_at->greaterThanOrEqualTo(now()->subDays(config('newsstand.alerts.max_story_age_days')));
+
+        if ($this->notify && $recent && ! empty($actions['alert']) && is_array($actions['alert'])) {
+            $level = $entry->cves->contains('in_kev', true) ? 'critical' : ($entry->cves->isNotEmpty() ? 'high' : 'info');
+
+            app(AlertDispatcher::class)->notifyChannels($user, $actions['alert'], AlertMessage::forEntry($entry, 'Rule: '.$rule->name, $level), 'entry:'.$entry->id);
         }
     }
 

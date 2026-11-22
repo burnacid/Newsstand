@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  *   starred  []                          the owner's starred stories
  *   top      []                          top stories of the last 48 hours
  *   cves     ['filter' => kev|critical|mentioned]  vulnerabilities in the news
+ *   watchlist []                         stories about the owner's watched products
  * All types accept ['limit' => 3..20].
  *
  * @property int $id
@@ -28,7 +29,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable(['type', 'title', 'config', 'wide', 'position'])]
 class DashboardWidget extends Model
 {
-    public const TYPES = ['feed', 'folder', 'search', 'tag', 'starred', 'top', 'cves'];
+    public const TYPES = ['feed', 'folder', 'search', 'tag', 'starred', 'top', 'cves', 'watchlist'];
 
     protected function casts(): array
     {
@@ -56,6 +57,7 @@ class DashboardWidget extends Model
             'starred' => 'star',
             'top' => 'fire',
             'cves' => 'shield-exclamation',
+            'watchlist' => 'eye',
             default => 'squares-2x2',
         };
     }

@@ -5,6 +5,7 @@
             <flux:navlist.item :href="route('security.edit')" wire:navigate>{{ __('Security') }}</flux:navlist.item>
             <flux:navlist.item :href="route('appearance.edit')" wire:navigate>{{ __('Appearance') }}</flux:navlist.item>
             <flux:navlist.item :href="route('digest.edit')" wire:navigate>{{ __('Daily digest') }}</flux:navlist.item>
+            <flux:navlist.item :href="route('alerts.edit')" wire:navigate>{{ __('Alerts') }}</flux:navlist.item>
         </flux:navlist>
     </div>
 

@@ -21,8 +21,20 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::livewire('feeds', 'pages::feeds.index')->name('feeds.index');
     Route::livewire('security', 'pages::security.index')->name('security');
+    Route::livewire('security/cves/{cveId}', 'pages::security.cve')->where('cveId', '(?i)CVE-\d{4}-\d{4,}')->name('security.cve');
+    Route::livewire('watchlist', 'pages::watchlist.index')->name('watchlist');
     Route::livewire('rules', 'pages::rules.index')->name('rules');
+    Route::livewire('teams', 'pages::teams.index')->name('teams.index');
+    Route::livewire('teams/join/{token}', 'pages::teams.join')->middleware('throttle:30,1')->name('teams.join');
+    Route::livewire('teams/{team}', 'pages::teams.show')->whereNumber('team')->name('teams.show');
     Route::get('feeds/export', OpmlExportController::class)->name('feeds.export');
+});
+
+Route::middleware(['auth', 'verified', 'can:admin'])->prefix('admin')->name('admin.')->group(function () {
+    Route::redirect('/', '/admin/users')->name('index');
+    Route::livewire('users', 'pages::admin.users')->name('users');
+    Route::livewire('settings', 'pages::admin.settings')->name('settings');
+    Route::livewire('health', 'pages::admin.health')->name('health');
 });
 
 // Public read-only dashboards (no login). Rate limited; tokens are 40 random characters.

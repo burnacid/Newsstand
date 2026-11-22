@@ -44,6 +44,7 @@ class EnrichCve implements ShouldQueue
     public function handle(NvdClient $nvd): void
     {
         $hadScore = $this->cve->cvss_score !== null;
+        $productsBefore = $this->cve->products()->count();
 
         try {
             $nvd->enrich($this->cve);
@@ -54,10 +55,12 @@ class EnrichCve implements ShouldQueue
             return;
         }
 
-        // First score: stories mentioning it may now match "CVSS at least" rules.
+        // First score: stories may now match "CVSS at least" rules.
+        // New affected products: stories may now concern someone's watchlist.
         $nowScored = $this->cve->fresh()?->cvss_score !== null;
+        $newProducts = $this->cve->products()->count() > $productsBefore;
 
-        if (! $hadScore && $nowScored) {
+        if ((! $hadScore && $nowScored) || $newProducts) {
             $entryIds = DB::table('cve_entry')->where('cve_id', $this->cve->id)->pluck('entry_id')->all();
 
             if ($entryIds !== []) {

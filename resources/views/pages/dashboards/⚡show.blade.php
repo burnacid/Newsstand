@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Services\Dashboards\WidgetContent;
 use App\Services\Reader\EntryQuery;
 use App\Services\Reader\EntryStates;
+use App\Services\Teams\FeedAccess;
 use Flux\Flux;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
@@ -112,9 +113,10 @@ new #[Title('Dashboard')] class extends Component {
         $owner = $this->dashboard->owner;
 
         return [
-            'feeds' => $owner->subscriptions()->with('feed:id,title,url')->get()
+            'feeds' => FeedAccess::subscriptions($owner)->with('feed:id,title,url')->orderByRaw('user_id is null')->get()->unique('feed_id')
                 ->map(fn ($s) => ['id' => $s->feed_id, 'title' => $s->displayTitle()])->sortBy('title', SORT_NATURAL | SORT_FLAG_CASE)->values(),
-            'folders' => $owner->folders()->get(['id', 'name']),
+            'folders' => FeedAccess::folders($owner)->with('team:id,name')->get(['id', 'name', 'team_id'])
+                ->each(fn ($folder) => $folder->setAttribute('name', $folder->team ? $folder->team->name.' · '.$folder->name : $folder->name)),
             'tags' => $owner->tags()->get(['id', 'name']),
         ];
     }
@@ -147,6 +149,7 @@ new #[Title('Dashboard')] class extends Component {
             'search' => __('Search: :q', ['q' => $c['query'] ?? '']),
             'starred' => __('Starred by :name', ['name' => $this->dashboard->owner->name]),
             'top' => __('Top stories'),
+            'watchlist' => __(':name’s watchlist', ['name' => $this->dashboard->owner->name]),
             'cves' => match ($c['filter'] ?? 'kev') {
                 'critical' => __('Critical vulnerabilities'),
                 'mentioned' => __('Vulnerabilities in the news'),
@@ -305,6 +308,26 @@ new #[Title('Dashboard')] class extends Component {
         Flux::toast(variant: 'success', text: __('Shared with :name.', ['name' => $user->name]));
     }
 
+    /** Teams the owner belongs to, for sharing with a whole team. */
+    #[Computed]
+    public function ownerTeams(): Collection
+    {
+        return Auth::user()->teams()->get();
+    }
+
+    public function shareWithTeam(string $teamId): void
+    {
+        $this->authorize('manage', $this->dashboard);
+
+        $team = $teamId === '' ? null : $this->ownerTeams->firstWhere('id', (int) $teamId);
+        $this->dashboard->forceFill(['team_id' => $team?->id])->save();
+        unset($this->dashboard);
+
+        Flux::toast(variant: 'success', text: $team
+            ? __('Shared with everyone in :team.', ['team' => $team->name])
+            : __('No longer shared with a team.'));
+    }
+
     public function changeRole(int $userId, string $role): void
     {
         $this->authorize('manage', $this->dashboard);
@@ -457,7 +480,7 @@ new #[Title('Dashboard')] class extends Component {
                 <div class="flex-1 divide-y divide-zinc-100 dark:divide-zinc-700/60">
                     @if ($widget->type === 'cves')
                         @forelse ($items as $cve)
-                            <a href="{{ $cve->nvdUrl() }}" target="_blank" rel="noopener noreferrer" class="flex items-center gap-2 px-4 py-2.5 hover:bg-zinc-50 dark:hover:bg-zinc-800">
+                            <a href="{{ route('security.cve', $cve->cve_id) }}" wire:navigate class="flex items-center gap-2 px-4 py-2.5 hover:bg-zinc-50 dark:hover:bg-zinc-800">
                                 <span class="font-mono text-xs font-medium">{{ $cve->cve_id }}</span>
                                 @if ($cve->cvss_score !== null)
                                     <flux:badge size="sm" :color="$cve->color()">{{ number_format($cve->cvss_score, 1) }}</flux:badge>
@@ -518,6 +541,7 @@ new #[Title('Dashboard')] class extends Component {
                     <flux:select.option value="starred">{{ __('Starred stories') }}</flux:select.option>
                     <flux:select.option value="top">{{ __('Top stories') }}</flux:select.option>
                     <flux:select.option value="cves">{{ __('Vulnerabilities') }}</flux:select.option>
+                    <flux:select.option value="watchlist">{{ __('Watchlist stories') }}</flux:select.option>
                 </flux:select>
 
                 @switch($wType)
@@ -589,6 +613,18 @@ new #[Title('Dashboard')] class extends Component {
                     </flux:select>
                     <flux:button type="submit" variant="primary" data-test="share-submit">{{ __('Share') }}</flux:button>
                 </form>
+
+                @if ($this->ownerTeams->isNotEmpty())
+                    <div class="space-y-1">
+                        <flux:select :label="__('Share with a team')" wire:change="shareWithTeam($event.target.value)" data-test="share-team">
+                            <flux:select.option value="" :selected="$dashboard->team_id === null">{{ __('No team') }}</flux:select.option>
+                            @foreach ($this->ownerTeams as $t)
+                                <flux:select.option value="{{ $t->id }}" :selected="$dashboard->team_id === $t->id">{{ $t->name }}</flux:select.option>
+                            @endforeach
+                        </flux:select>
+                        <flux:text class="text-xs">{{ __('Team owners and admins can edit, members can view.') }}</flux:text>
+                    </div>
+                @endif
 
                 @if ($this->members->isNotEmpty())
                     <div class="-mx-2 space-y-0.5">

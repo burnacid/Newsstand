@@ -36,6 +36,22 @@ it('closes registration once there is a user', function () {
     expect(User::count())->toBe(1);
 });
 
+it('can disable registration completely, even for the first account', function () {
+    config(['newsstand.registration' => 'disabled']);
+
+    $this->get(route('register'))->assertNotFound();
+    $this->get(route('login'))->assertDontSee('Sign up');
+    $this->post(route('register.store'), [
+        'name' => 'First', 'email' => 'first@example.com', 'password' => 'password', 'password_confirmation' => 'password',
+    ])->assertForbidden();
+
+    expect(User::count())->toBe(0);
+
+    // Users can still be created by an administrator.
+    $this->artisan('newsstand:user', ['email' => 'admin@example.com'])->assertSuccessful();
+    expect(User::count())->toBe(1);
+});
+
 it('keeps registration open when configured', function () {
     config(['newsstand.registration' => 'open']);
     User::factory()->create();
@@ -55,6 +71,52 @@ it('creates users from the command line', function () {
 
     $this->artisan('newsstand:user', ['email' => 'colleague@example.com'])->assertFailed();
     $this->artisan('newsstand:user', ['email' => 'not-an-email'])->assertFailed();
+});
+
+// --- Versioning ---
+
+it('reads the version from the VERSION file and shows it', function () {
+    $version = trim(file_get_contents(base_path('VERSION')));
+
+    expect(config('newsstand.version'))->toBe($version)
+        ->and($version)->toMatch('/^\d+\.\d+\.\d+$/')
+        ->and(file_get_contents(base_path('CHANGELOG.md')))->toContain("## [{$version}]");
+
+    $this->get('/')->assertSee("v{$version}");
+});
+
+// --- Session cookie over HTTP / HTTPS ---
+
+function sessionCookie($response)
+{
+    return collect($response->headers->getCookies())->first(fn ($c) => $c->getName() === config('session.cookie'));
+}
+
+it('only marks the session cookie secure for HTTPS requests in auto mode', function () {
+    config(['session.driver' => 'file', 'session.secure' => 'auto']);
+
+    expect(sessionCookie($this->get('http://localhost/login'))->isSecure())->toBeFalse();
+
+    config(['session.secure' => 'auto']);
+    expect(sessionCookie($this->get('https://localhost/login'))->isSecure())->toBeTrue();
+});
+
+it('respects an explicit secure setting and warns when it can\'t work', function () {
+    config(['session.driver' => 'file', 'session.secure' => true]);
+
+    $response = $this->get('http://localhost/register');
+    expect(sessionCookie($response)->isSecure())->toBeTrue();
+    $response->assertSee('Signing in won’t work over plain HTTP', false);
+
+    config(['session.secure' => true]);
+    $this->get('https://localhost/register')->assertDontSee('Signing in won’t work over plain HTTP', false);
+
+    config(['session.secure' => 'auto']);
+    $this->get('http://localhost/login')->assertDontSee('Signing in won’t work over plain HTTP', false);
+});
+
+it('defaults to auto', function () {
+    expect(config('session.secure'))->toBeIn(['auto', false]);
 });
 
 // --- Security headers ---

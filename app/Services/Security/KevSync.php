@@ -4,6 +4,10 @@ namespace App\Services\Security;
 
 use App\Jobs\EvaluateRules;
 use App\Models\Cve;
+use App\Models\CveProduct;
+use App\Models\WatchlistItem;
+use App\Services\Alerts\AlertDispatcher;
+use App\Services\Alerts\AlertMessage;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -53,7 +57,17 @@ class KevSync
             );
         });
 
+        // CISA's vendor/product names, for watchlist matching.
+        $ids = Cve::whereIn('cve_id', $rows->pluck('cve_id'))->pluck('id', 'cve_id');
+        foreach ($rows as $row) {
+            if (isset($ids[$row['cve_id']]) && $row['kev_vendor'] && $row['kev_product']) {
+                CveProduct::record($ids[$row['cve_id']], [[$row['kev_vendor'], $row['kev_product']]], 'kev');
+            }
+        }
+
         $newIds = $rows->pluck('cve_id')->reject(fn ($id) => $wasKev->has($id))->values();
+
+        $this->alertWatchers(array_values(array_map(strval(...), $newIds->all())));
 
         // Stories mentioning newly exploited CVEs may now match "actively exploited" rules.
         $entryIds = DB::table('cve_entry')
@@ -69,5 +83,45 @@ class KevSync
         }
 
         return ['total' => $rows->count(), 'new' => $newIds->count()];
+    }
+
+    /**
+     * "A product you watch was just added to KEV": alert owners of matching
+     * watchlist items (with alerts on) whose channels subscribe to KEV alerts.
+     * Only for entries CISA added recently, so a first import doesn't flood anyone.
+     *
+     * @param  list<string>  $newCveIds
+     */
+    private function alertWatchers(array $newCveIds): void
+    {
+        if ($newCveIds === []) {
+            return;
+        }
+
+        $recent = Cve::whereIn('cve_id', $newCveIds)
+            ->where('kev_added_on', '>=', now()->subDays(7)->toDateString())
+            ->get()
+            ->keyBy('id');
+
+        if ($recent->isEmpty()) {
+            return;
+        }
+
+        $alerts = app(AlertDispatcher::class);
+
+        foreach (WatchlistItem::with(['user', 'team'])->where('alert_level', '!=', 'off')->get() as $item) {
+            $matching = $item->cveProducts()->whereIn('cve_id', $recent->keys())->distinct()->pluck('cve_id');
+
+            foreach ($matching as $cveId) {
+                $cve = $recent[$cveId];
+                $owner = $item->owner();
+
+                if ($owner === null) {
+                    continue 2;
+                }
+
+                $alerts->notify($owner, 'kev', AlertMessage::forKev($cve, $item->label()), 'kev:'.$cve->cve_id);
+            }
+        }
     }
 }

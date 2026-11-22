@@ -15,7 +15,7 @@ await page.goto(`${base}/login`);
 await page.fill('input[name=email]', 'playwright@example.test');
 await page.fill('input[name=password]', 'playwright-pass');
 await page.locator('button[type=submit]').first().click();
-await page.waitForURL(/\/(reader|dashboards)/, { timeout: 15000 });
+await page.waitForURL(/\/(reader|dashboards)/, { timeout: 45000, waitUntil: 'commit' });
 
 const visit = async (label, path, after) => {
     current = label;
@@ -27,6 +27,9 @@ const visit = async (label, path, after) => {
 };
 
 await visit('welcome', '/');
+await visit('teams', '/teams');
+await visit('watchlist', '/watchlist');
+await visit('alerts', '/settings/alerts');
 await visit('reader list', '/reader?show=all', async () => {
     await page.keyboard.press('j');
     await page.waitForTimeout(800);

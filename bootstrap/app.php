@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Middleware\EnsureAccountIsActive;
+use App\Http\Middleware\ResolveSecureSessionCookie;
 use App\Http\Middleware\SecurityHeaders;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -14,6 +16,8 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->append(SecurityHeaders::class);
+        $middleware->prependToGroup('web', ResolveSecureSessionCookie::class);
+        $middleware->appendToGroup('web', EnsureAccountIsActive::class);
 
         // Behind a reverse proxy (Caddy, Traefik, nginx, Cloudflare Tunnel...):
         // set TRUSTED_PROXIES to its IP/CIDR, or "*" when only the proxy can reach the app.

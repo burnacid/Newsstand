@@ -1,6 +1,8 @@
 <?php
 
 use App\Models\Cve;
+use App\Services\Teams\FeedAccess;
+use App\Services\Watchlist\WatchlistMatcher;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Auth;
@@ -18,7 +20,7 @@ use Livewire\WithPagination;
 new #[Title('Vulnerabilities')] class extends Component {
     use WithPagination;
 
-    /** mentioned | kev | critical | high | kev_new */
+    /** mentioned | kev | critical | high | kev_new | mine */
     #[Url(except: 'mentioned')]
     public string $filter = 'mentioned';
 
@@ -42,14 +44,21 @@ new #[Title('Vulnerabilities')] class extends Component {
         // Stories this user can see that mention each CVE, within the period.
         $mentions = DB::table('cve_entry')
             ->join('entries', 'entries.id', '=', 'cve_entry.entry_id')
-            ->whereIn('entries.feed_id', DB::table('subscriptions')->select('feed_id')->where('user_id', $user->id))
+            ->whereIn('entries.feed_id', FeedAccess::feedIds($user))
             ->where('entries.published_at', '>=', $since)
             ->groupBy('cve_entry.cve_id')
             ->selectRaw('cve_entry.cve_id, count(*) as stories, max(entries.published_at) as last_mentioned_at');
 
         $query = Cve::query();
 
-        if ($this->filter === 'kev_new') {
+        if ($this->filter === 'mine') {
+            // Everything affecting watched products, mentioned in a story or not.
+            $query->whereIn('cves.id', app(WatchlistMatcher::class)->cveIdsFor($user))
+                ->leftJoinSub($mentions, 'm', 'm.cve_id', '=', 'cves.id')
+                ->orderByDesc('in_kev')
+                ->orderByRaw('cvss_score is null, cvss_score desc')
+                ->orderByDesc('cves.id');
+        } elseif ($this->filter === 'kev_new') {
             $query->where('in_kev', true)->where('kev_added_on', '>=', now()->subDays(14)->toDateString())
                 ->leftJoinSub($mentions, 'm', 'm.cve_id', '=', 'cves.id')
                 ->orderByDesc('kev_added_on');
@@ -82,7 +91,7 @@ new #[Title('Vulnerabilities')] class extends Component {
         $row = DB::table('cves')
             ->join('cve_entry', 'cve_entry.cve_id', '=', 'cves.id')
             ->join('entries', 'entries.id', '=', 'cve_entry.entry_id')
-            ->whereIn('entries.feed_id', DB::table('subscriptions')->select('feed_id')->where('user_id', $user->id))
+            ->whereIn('entries.feed_id', FeedAccess::feedIds($user))
             ->where('entries.published_at', '>=', now()->subDays(7))
             ->selectRaw('count(distinct cves.id) as mentioned')
             ->selectRaw('count(distinct case when cves.in_kev = ? then cves.id end) as exploited', [true])
@@ -139,6 +148,7 @@ new #[Title('Vulnerabilities')] class extends Component {
             <flux:radio value="critical" :label="__('Critical')" />
             <flux:radio value="high" :label="__('High+')" />
             <flux:radio value="kev_new" :label="__('New in KEV')" />
+            <flux:radio value="mine" :label="__('My products')" data-test="filter-mine" />
         </flux:radio.group>
 
         <flux:spacer />
@@ -158,7 +168,7 @@ new #[Title('Vulnerabilities')] class extends Component {
         @forelse ($this->cves as $cve)
             <div class="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-800/60" wire:key="cve-{{ $cve->id }}">
                 <div class="flex flex-wrap items-center gap-2">
-                    <a href="{{ $cve->nvdUrl() }}" target="_blank" rel="noopener noreferrer" class="font-mono text-sm font-semibold hover:underline">{{ $cve->cve_id }}</a>
+                    <a href="{{ route('security.cve', $cve->cve_id) }}" wire:navigate class="font-mono text-sm font-semibold hover:underline">{{ $cve->cve_id }}</a>
                     @if ($cve->cvss_score !== null)
                         <flux:badge size="sm" :color="$cve->color()">{{ ucfirst($cve->severity) }} {{ number_format($cve->cvss_score, 1) }}</flux:badge>
                     @else

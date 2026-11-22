@@ -28,10 +28,20 @@ class CreateNewUser implements CreatesNewUsers
             'password' => $this->passwordRules(),
         ])->validate();
 
-        return User::create([
+        $first = ! User::query()->exists();
+
+        $user = User::create([
             'name' => $input['name'],
             'email' => $input['email'],
             'password' => $input['password'],
         ]);
+
+        // The very first account administers the install. It's created by whoever runs the
+        // server, often before mail is configured, so it doesn't need email verification.
+        if ($first) {
+            $user->forceFill(['is_admin' => true, 'email_verified_at' => now()])->save();
+        }
+
+        return $user;
     }
 }

@@ -3,6 +3,8 @@
 use App\Jobs\EvaluateRules;
 use App\Models\Rule;
 use App\Services\Rules\RuleEvaluator;
+use App\Services\Teams\FeedAccess;
+use App\Services\Alerts\AlertDispatcher;
 use Flux\Flux;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
@@ -34,6 +36,9 @@ new #[Title('Rules')] class extends Component {
 
     public bool $mute = false;
 
+    /** @var list<string> alert channel ids to notify */
+    public array $alertChannels = [];
+
     public bool $applyToRecent = true;
 
     /** Ready-made rules for the security use case. */
@@ -52,7 +57,8 @@ new #[Title('Rules')] class extends Component {
     #[Computed]
     public function feeds(): Collection
     {
-        return Auth::user()->subscriptions()->with('feed:id,title,url')->get()
+        return FeedAccess::subscriptions(Auth::user())->with('feed:id,title,url')->orderByRaw('user_id is null')->get()
+            ->unique('feed_id')
             ->map(fn ($s) => ['id' => $s->feed_id, 'title' => $s->displayTitle()])
             ->sortBy('title', SORT_NATURAL | SORT_FLAG_CASE)->values();
     }
@@ -60,7 +66,16 @@ new #[Title('Rules')] class extends Component {
     #[Computed]
     public function folders(): Collection
     {
-        return Auth::user()->folders()->get();
+        return FeedAccess::folders(Auth::user())->with('team:id,name')->orderByRaw('team_id is not null')->orderBy('name')->get()
+            ->each(fn ($folder) => $folder->setAttribute('name', $folder->team ? $folder->team->name.' · '.$folder->name : $folder->name));
+    }
+
+    #[Computed]
+    public function channels(): Collection
+    {
+        return AlertDispatcher::usableChannels(Auth::user())->with('team:id,name')->orderByRaw('team_id is not null')->orderBy('name')
+            ->get(['id', 'name', 'type', 'enabled', 'team_id'])
+            ->each(fn ($channel) => $channel->setAttribute('name', $channel->team ? $channel->team->name.' · '.$channel->name : $channel->name));
     }
 
     #[Computed]
@@ -94,6 +109,7 @@ new #[Title('Rules')] class extends Component {
         $this->later = (bool) ($rule->actions['later'] ?? false);
         $this->markRead = (bool) ($rule->actions['read'] ?? false);
         $this->mute = (bool) ($rule->actions['mute'] ?? false);
+        $this->alertChannels = array_map('strval', $rule->actions['alert'] ?? []);
         $this->applyToRecent = false;
 
         Flux::modal('rule-editor')->show();
@@ -118,7 +134,7 @@ new #[Title('Rules')] class extends Component {
             $this->conditions[$index]['value'] = match ($value) {
                 'cvss' => 9,
                 'sources' => 3,
-                'has_cve', 'kev' => null,
+                'has_cve', 'kev', 'watchlist' => null,
                 default => '',
             };
         }
@@ -199,6 +215,8 @@ new #[Title('Rules')] class extends Component {
             'later' => $this->later,
             'read' => $this->markRead,
             'mute' => $this->mute,
+            // Only channels this user owns.
+            'alert' => $this->channels->pluck('id')->intersect(array_map('intval', $this->alertChannels))->values()->all() ?: null,
         ]);
 
         if ($actions === []) {
@@ -235,7 +253,7 @@ new #[Title('Rules')] class extends Component {
 
     private function resetEditor(): void
     {
-        $this->reset('editingId', 'name', 'match', 'conditions', 'highlight', 'tagId', 'star', 'later', 'markRead', 'mute');
+        $this->reset('editingId', 'name', 'match', 'conditions', 'highlight', 'tagId', 'star', 'later', 'markRead', 'mute', 'alertChannels');
         $this->applyToRecent = true;
         $this->resetErrorBag();
     }
@@ -256,6 +274,7 @@ new #[Title('Rules')] class extends Component {
             'has_cve' => __('mentions a CVE'),
             'cvss' => __('CVSS ≥ :v', ['v' => $c['value']]),
             'kev' => __('actively exploited'),
+            'watchlist' => __('on my watchlist'),
             'sources' => __(':v+ sources', ['v' => $c['value']]),
             default => $c['type'],
         })->implode($rule->match === 'any' ? ' '.__('or').' ' : ' '.__('and').' ');
@@ -269,6 +288,7 @@ new #[Title('Rules')] class extends Component {
             ! empty($a['later']) ? __('read later') : null,
             ! empty($a['read']) ? __('mark read') : null,
             ! empty($a['mute']) ? __('mute') : null,
+            ! empty($a['alert']) ? __('alert') : null,
         ])->filter()->implode(', ');
 
         return "{$conditions} → {$actions}";
@@ -355,6 +375,7 @@ new #[Title('Rules')] class extends Component {
                             <flux:select.option value="cvss">{{ __('CVSS score at least') }}</flux:select.option>
                             <flux:select.option value="kev">{{ __('Actively exploited (KEV)') }}</flux:select.option>
                             <flux:select.option value="sources">{{ __('Covered by at least') }}</flux:select.option>
+                            <flux:select.option value="watchlist">{{ __('Concerns my watchlist') }}</flux:select.option>
                         </flux:select>
 
                         <div class="min-w-0 flex-1">
@@ -381,6 +402,7 @@ new #[Title('Rules')] class extends Component {
                                     @break
                                 @case('has_cve')
                                 @case('kev')
+                                @case('watchlist')
                                     <div class="py-1.5 text-sm text-zinc-500">{{ __('No value needed.') }}</div>
                                     @break
                                 @default
@@ -419,6 +441,14 @@ new #[Title('Rules')] class extends Component {
                     <flux:checkbox wire:model="later" :label="__('Save for later')" />
                     <flux:checkbox wire:model="markRead" :label="__('Mark as read')" />
                     <flux:checkbox wire:model="mute" :label="__('Mute (hide from lists)')" />
+                </div>
+                <div class="space-y-2">
+                    <flux:text size="sm" class="font-medium text-zinc-700 dark:text-zinc-300">{{ __('Send alert to') }}</flux:text>
+                    @forelse ($this->channels as $channel)
+                        <flux:checkbox wire:model="alertChannels" :value="(string) $channel->id" :label="$channel->name.' ('.\App\Models\AlertChannel::label($channel->type).')'" data-test="rule-alert-{{ $channel->id }}" />
+                    @empty
+                        <flux:text size="sm"><flux:link :href="route('alerts.edit')" wire:navigate>{{ __('Add an alert channel') }}</flux:link> {{ __('to get notified when this rule matches.') }}</flux:text>
+                    @endforelse
                 </div>
                 <flux:error name="actions" />
             </div>

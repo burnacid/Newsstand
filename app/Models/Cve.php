@@ -6,6 +6,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * @property int $id
@@ -47,6 +48,12 @@ class Cve extends Model
     public function entries(): BelongsToMany
     {
         return $this->belongsToMany(Entry::class);
+    }
+
+    /** @return HasMany<CveProduct, $this> */
+    public function products(): HasMany
+    {
+        return $this->hasMany(CveProduct::class)->orderBy('vendor')->orderBy('product');
     }
 
     /** Severity bucket from the CVSS score (NVD's v3 ranges). */

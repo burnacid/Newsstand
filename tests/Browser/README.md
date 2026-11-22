@@ -16,6 +16,7 @@ Then, with `php artisan serve` running:
 node tests/Browser/page-errors.mjs        # every page + reader modes: no JS errors
 node tests/Browser/feeds-page-check.mjs   # delete/rename tag, unsubscribe (needs tags pw-delete-me, pw-rename-me and one subscription)
 node tests/Browser/river-check.mjs        # river marks scrolled-past stories read
+node tests/Browser/teams-check.mjs        # create a team, folder, invite link, team watchlist, a note; deletes it all again
 ```
 
 They use the installed Microsoft Edge. To use Playwright's own Chromium instead:

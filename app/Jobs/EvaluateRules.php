@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Services\Rules\RuleEvaluator;
+use App\Services\Watchlist\WatchlistMatcher;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 
@@ -23,9 +24,11 @@ class EvaluateRules implements ShouldQueue
         $this->entryIds = array_values(array_map(intval(...), $entryIds));
     }
 
-    public function handle(RuleEvaluator $evaluator): void
+    /** Watchlist first, so rules with a "on my watchlist" condition see fresh hits. */
+    public function handle(RuleEvaluator $evaluator, WatchlistMatcher $watchlist): void
     {
         foreach (array_chunk($this->entryIds, 200) as $chunk) {
+            $watchlist->matchEntries($chunk);
             $evaluator->evaluateEntries($chunk);
         }
     }
