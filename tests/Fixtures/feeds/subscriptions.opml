@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <head><title>My feeds</title></head>
+  <body>
+    <outline text="Security" title="Security">
+      <outline type="rss" text="Krebs" title="Krebs on Security" xmlUrl="https://krebsonsecurity.com/feed/" htmlUrl="https://krebsonsecurity.com"/>
+      <outline text="Nested">
+        <outline type="rss" text="BleepingComputer" xmlUrl="https://www.bleepingcomputer.com/feed/"/>
+      </outline>
+    </outline>
+    <outline type="rss" text="Laravel News" xmlUrl="https://feed.laravel-news.com/"/>
+    <outline type="rss" text="Bad" xmlUrl="file:///etc/passwd"/>
+  </body>
+</opml>

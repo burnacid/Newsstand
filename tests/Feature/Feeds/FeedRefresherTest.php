@@ -1,0 +1,117 @@
+<?php
+
+use App\Jobs\ExtractFullText;
+use App\Models\Feed;
+use App\Models\User;
+use App\Services\Feeds\FeedRefresher;
+use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
+
+beforeEach(function () {
+    $this->feed = Feed::factory()->create(['url' => 'https://security.example.com/feed.xml', 'title' => null]);
+    User::factory()->create()->subscriptions()->create(['feed_id' => $this->feed->id]);
+});
+
+function refreshFeed(Feed $feed): int
+{
+    return app(FeedRefresher::class)->refresh($feed->fresh());
+}
+
+it('stores entries and feed metadata', function () {
+    Http::fake(['*' => Http::response(feedFixture('rss.xml'), 200, ['ETag' => '"v1"'])]);
+
+    expect(refreshFeed($this->feed))->toBe(2);
+
+    $feed = $this->feed->fresh();
+    expect($feed->title)->toBe('Security Weekly & More')
+        ->and($feed->site_url)->toBe('https://security.example.com/')
+        ->and($feed->etag)->toBe('"v1"')
+        ->and($feed->error_count)->toBe(0)
+        ->and($feed->next_fetch_at)->not->toBeNull()
+        ->and($feed->entries()->count())->toBe(2);
+});
+
+it('sanitizes article HTML', function () {
+    Http::fake(['*' => Http::response(feedFixture('rss.xml'))]);
+    refreshFeed($this->feed);
+
+    $content = $this->feed->entries()->where('guid', 'post-1')->value('content');
+
+    expect($content)->toContain('<strong>critical</strong>')
+        ->not->toContain('<script')
+        ->not->toContain('onclick')
+        ->not->toContain('onerror')
+        ->toContain('rel="noopener noreferrer nofollow"');
+});
+
+it('does not duplicate entries on a second fetch', function () {
+    Http::fake(['*' => Http::response(feedFixture('rss.xml'))]);
+
+    refreshFeed($this->feed);
+    expect(refreshFeed($this->feed))->toBe(0)
+        ->and($this->feed->entries()->count())->toBe(2);
+});
+
+it('sends conditional headers and handles 304', function () {
+    $this->feed->forceFill(['etag' => '"v1"', 'last_modified' => 'Fri, 20 Nov 2026 10:00:00 GMT'])->save();
+    Http::fake(['*' => Http::response('', 304)]);
+
+    expect(refreshFeed($this->feed))->toBe(0);
+
+    Http::assertSent(fn (Request $r) => $r->header('If-None-Match') === ['"v1"']
+        && $r->header('If-Modified-Since') === ['Fri, 20 Nov 2026 10:00:00 GMT']);
+
+    $feed = $this->feed->fresh();
+    expect($feed->error_count)->toBe(0)->and($feed->etag)->toBe('"v1"');
+});
+
+it('polls busy feeds often and quiet feeds rarely', function () {
+    Http::fake(['*' => Http::response('', 304)]);
+
+    // 15 posts over the last 7 hours: one every 30 minutes -> poll every 15.
+    foreach (range(0, 14) as $i) {
+        $this->feed->entries()->create([
+            'guid' => "busy-{$i}", 'guid_hash' => sha1("busy-{$i}"), 'published_at' => now()->subMinutes(30 * $i),
+        ]);
+    }
+    refreshFeed($this->feed);
+    expect($this->feed->fresh()->fetch_interval)->toBe(15);
+
+    // No recent posts -> max interval.
+    $this->feed->entries()->delete();
+    refreshFeed($this->feed);
+    expect($this->feed->fresh()->fetch_interval)->toBe(360);
+});
+
+it('records errors and backs off', function () {
+    Http::fake(['*' => Http::response('nope', 500)]);
+
+    refreshFeed($this->feed);
+    $first = $this->feed->fresh();
+    refreshFeed($this->feed);
+    $second = $this->feed->fresh();
+
+    expect($second->error_count)->toBe(2)
+        ->and($second->last_error)->toContain('HTTP 500')
+        ->and($second->next_fetch_at->diffInMinutes($second->last_fetched_at, true))
+        ->toBeGreaterThan($first->next_fetch_at->diffInMinutes($first->last_fetched_at, true));
+});
+
+it('records an error for responses that are not feeds', function () {
+    Http::fake(['*' => Http::response(feedFixture('site.html'))]);
+
+    refreshFeed($this->feed);
+
+    expect($this->feed->fresh()->last_error)->toContain('not an RSS or Atom feed');
+});
+
+it('queues full-text extraction for new entries when enabled', function () {
+    Queue::fake();
+    $this->feed->update(['full_text' => true]);
+    Http::fake(['*' => Http::response(feedFixture('rss.xml'))]);
+
+    refreshFeed($this->feed);
+
+    Queue::assertPushed(ExtractFullText::class, 2);
+});

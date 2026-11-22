@@ -15,7 +15,7 @@ use Tests\TestCase;
 */
 
 pest()->extend(TestCase::class)
- // ->use(RefreshDatabase::class)
+    ->use(RefreshDatabase::class)
     ->in('Feature');
 
 /*
@@ -47,4 +47,9 @@ expect()->extend('toBeOne', function () {
 function something()
 {
     // ..
+}
+
+function feedFixture(string $name): string
+{
+    return file_get_contents(base_path("tests/Fixtures/feeds/{$name}"));
 }

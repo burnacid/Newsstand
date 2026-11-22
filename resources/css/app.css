@@ -10,30 +10,56 @@
 
 @theme {
     --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+    --font-serif: 'Newsreader', Georgia, 'Times New Roman', serif;
 
-    --color-zinc-50: #fafafa;
-    --color-zinc-100: #f5f5f5;
-    --color-zinc-200: #e5e5e5;
-    --color-zinc-300: #d4d4d4;
-    --color-zinc-400: #a3a3a3;
-    --color-zinc-500: #737373;
-    --color-zinc-600: #525252;
-    --color-zinc-700: #404040;
-    --color-zinc-800: #262626;
-    --color-zinc-900: #171717;
-    --color-zinc-950: #0a0a0a;
+    /*
+     * Newsstand palette: Flux builds its UI on "zinc", so we swap in warm
+     * newsprint greys (paper -> ink) instead of the default cold neutrals.
+     */
+    --color-zinc-50: #faf9f6;
+    --color-zinc-100: #f3f1ec;
+    --color-zinc-200: #e6e2d9;
+    --color-zinc-300: #d3cdc1;
+    --color-zinc-400: #a59e90;
+    --color-zinc-500: #776f63;
+    --color-zinc-600: #575047;
+    --color-zinc-700: #433d36;
+    --color-zinc-800: #292520;
+    --color-zinc-900: #1b1814;
+    --color-zinc-950: #0f0d0a;
 
-    --color-accent: var(--color-neutral-800);
-    --color-accent-content: var(--color-neutral-800);
+    --color-paper: #fdfcf9;
+    --color-ink: #1b1814;
+
+    /* Emerald accent; red stays reserved for security alerts. */
+    --color-accent: var(--color-emerald-700);
+    --color-accent-content: var(--color-emerald-700);
     --color-accent-foreground: var(--color-white);
 }
 
 @layer theme {
     .dark {
-        --color-accent: var(--color-white);
-        --color-accent-content: var(--color-white);
-        --color-accent-foreground: var(--color-neutral-800);
+        --color-accent: var(--color-emerald-500);
+        --color-accent-content: var(--color-emerald-400);
+        --color-accent-foreground: var(--color-emerald-950);
     }
+}
+
+@layer base {
+    /* Editorial headings: Flux headings and the .font-serif utility share the serif. */
+    [data-flux-heading] {
+        font-family: var(--font-serif);
+        letter-spacing: -0.01em;
+    }
+
+    ::selection {
+        background-color: color-mix(in oklab, var(--color-emerald-500) 25%, transparent);
+    }
+}
+
+/* Double rule, as under a newspaper masthead. */
+.rule-double {
+    border-top: 3px double currentColor;
 }
 
 @layer base {

@@ -16,6 +16,13 @@ export default defineConfig({
                 bunny('Instrument Sans', {
                     weights: [400, 500, 600],
                 }),
+                // Editorial serif for the wordmark, headings and (later) article text.
+                bunny('Newsreader', {
+                    weights: [400, 500, 600, 700],
+                    styles: ['normal', 'italic'],
+                    preload: [{ weight: 600, style: 'normal' }],
+                    fallbacks: ['Georgia', 'serif'],
+                }),
             ],
         }),
         tailwindcss(),

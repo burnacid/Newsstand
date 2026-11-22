@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:media="http://search.yahoo.com/mrss/">
+  <channel>
+    <title>Security Weekly &amp; More</title>
+    <link>https://security.example.com/</link>
+    <description>News about vulnerabilities</description>
+    <item>
+      <title>Critical flaw in Example VPN (CVE-2026-12345)</title>
+      <link>https://security.example.com/posts/vpn-flaw?utm_source=rss</link>
+      <guid isPermaLink="false">post-1</guid>
+      <dc:creator>Jane Doe</dc:creator>
+      <pubDate>Fri, 20 Nov 2026 10:00:00 +0000</pubDate>
+      <description><![CDATA[<p>A <strong>critical</strong> bug.</p><script>alert('x')</script><p><a href="https://example.org" onclick="steal()">details</a></p><img src="https://cdn.example.com/vpn.png" onerror="bad()">]]></description>
+    </item>
+    <item>
+      <title>Patch Tuesday roundup</title>
+      <link>https://security.example.com/posts/patch-tuesday</link>
+      <guid>https://security.example.com/posts/patch-tuesday</guid>
+      <pubDate>Thu, 19 Nov 2026 08:30:00 +0000</pubDate>
+      <description>Plain text summary of this month's patches.</description>
+      <media:content url="https://cdn.example.com/patch.jpg" medium="image" type="image/jpeg" />
+    </item>
+  </channel>
+</rss>
