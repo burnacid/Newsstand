@@ -3,6 +3,7 @@
 namespace App\Services\Feeds;
 
 use App\Jobs\ExtractFullText;
+use App\Jobs\ProcessEntrySignals;
 use App\Models\Entry;
 use App\Models\Feed;
 use App\Services\Feeds\Data\ParsedItem;
@@ -59,6 +60,10 @@ class EntryProcessor
 
         if ($feed->full_text) {
             $created->filter(fn (Entry $e) => $e->url !== null)->each(fn (Entry $e) => ExtractFullText::dispatch($e));
+        }
+
+        if ($created->isNotEmpty()) {
+            ProcessEntrySignals::dispatch($created->pluck('id')->all());
         }
 
         return $created;

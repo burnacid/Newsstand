@@ -98,6 +98,20 @@
     @apply bg-white shadow-md ring-1 ring-zinc-200 dark:bg-zinc-700 dark:ring-zinc-600;
 }
 
+/* Stories highlighted by a rule (App\Models\Rule::HIGHLIGHTS): tinted row, colored edge. */
+.highlight-red { @apply border-red-500 bg-red-500/8 dark:bg-red-500/10; }
+.highlight-orange { @apply border-orange-500 bg-orange-500/8 dark:bg-orange-500/10; }
+.highlight-amber { @apply border-amber-500 bg-amber-500/10 dark:bg-amber-500/10; }
+.highlight-emerald { @apply border-emerald-500 bg-emerald-500/8 dark:bg-emerald-500/10; }
+.highlight-blue { @apply border-blue-500 bg-blue-500/8 dark:bg-blue-500/10; }
+.highlight-violet { @apply border-violet-500 bg-violet-500/8 dark:bg-violet-500/10; }
+.highlight-bar-red { @apply bg-red-500; }
+.highlight-bar-orange { @apply bg-orange-500; }
+.highlight-bar-amber { @apply bg-amber-500; }
+.highlight-bar-emerald { @apply bg-emerald-500; }
+.highlight-bar-blue { @apply bg-blue-500; }
+.highlight-bar-violet { @apply bg-violet-500; }
+
 /* Double rule, as under a newspaper masthead. */
 .rule-double {
     border-top: 3px double currentColor;

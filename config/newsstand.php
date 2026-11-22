@@ -4,6 +4,18 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Registration
+    |--------------------------------------------------------------------------
+    |
+    | "open": anyone can create an account. "closed": only the first account
+    | (your admin); add others with `php artisan newsstand:user`.
+    |
+    */
+
+    'registration' => env('NEWSSTAND_REGISTRATION', 'open'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Feed fetching
     |--------------------------------------------------------------------------
     */
@@ -57,5 +69,38 @@ return [
     'unread_max_age_days' => (int) env('NEWSSTAND_UNREAD_MAX_AGE_DAYS', 30),
 
     'reader_page_size' => 40,
+
+    /*
+    |--------------------------------------------------------------------------
+    | Security signals
+    |--------------------------------------------------------------------------
+    |
+    | KEV: CISA's Known Exploited Vulnerabilities catalog. The official copy
+    | on GitHub is used because cisa.gov refuses automated PHP clients.
+    | NVD: CVSS scores. Without an API key NVD allows ~5 requests per 30s;
+    | with a free key (https://nvd.nist.gov/developers/request-an-api-key) ~50.
+    |
+    */
+
+    'security' => [
+        'kev_url' => env('NEWSSTAND_KEV_URL', 'https://raw.githubusercontent.com/cisagov/kev-data/main/known_exploited_vulnerabilities.json'),
+        'nvd_url' => env('NEWSSTAND_NVD_URL', 'https://services.nvd.nist.gov/rest/json/cves/2.0'),
+        'nvd_api_key' => env('NVD_API_KEY'),
+
+        // Fetch the article of teaser-only stories once to find the CVEs it mentions.
+        'scan_articles' => (bool) env('NEWSSTAND_SCAN_ARTICLES', true),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Story clustering
+    |--------------------------------------------------------------------------
+    */
+
+    'clustering' => [
+        'window_hours' => 48,
+        'min_similarity' => 0.5,
+        'min_shared_words' => 3,
+    ],
 
 ];

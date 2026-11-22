@@ -15,6 +15,15 @@
             </div>
 
             <flux:sidebar.nav>
+                <flux:sidebar.item icon="squares-2x2" :href="route('dashboards.index')" :current="request()->routeIs('dashboards.*')" wire:navigate>
+                    {{ __('Dashboards') }}
+                </flux:sidebar.item>
+                <flux:sidebar.item icon="shield-exclamation" :href="route('security')" :current="request()->routeIs('security')" wire:navigate>
+                    {{ __('Vulnerabilities') }}
+                </flux:sidebar.item>
+                <flux:sidebar.item icon="adjustments-horizontal" :href="route('rules')" :current="request()->routeIs('rules')" wire:navigate>
+                    {{ __('Rules') }}
+                </flux:sidebar.item>
                 <flux:sidebar.item icon="rss" :href="route('feeds.index')" :current="request()->routeIs('feeds.*')" wire:navigate>
                     {{ __('Manage feeds') }}
                 </flux:sidebar.item>

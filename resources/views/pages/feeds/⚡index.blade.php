@@ -81,14 +81,14 @@ new #[Title('Feeds')] class extends Component {
 
     // --- Tags ---
 
-    public string $tagName = '';
+    public string $newTagName = '';
 
     public function createTag(TagEntries $tags): void
     {
-        $this->validate(['tagName' => ['required', 'string', 'max:50']]);
-        $tags->create(Auth::user(), $this->tagName);
+        $this->validate(['newTagName' => ['required', 'string', 'max:50']]);
+        $tags->create(Auth::user(), $this->newTagName);
 
-        $this->reset('tagName');
+        $this->reset('newTagName');
         unset($this->tags);
     }
 
@@ -401,8 +401,8 @@ new #[Title('Feeds')] class extends Component {
 
             <form wire:submit="createTag" class="flex gap-2">
                 <div class="flex-1">
-                    <flux:input wire:model="tagName" :placeholder="__('New tag name')" />
-                    <flux:error name="tagName" />
+                    <flux:input wire:model="newTagName" :placeholder="__('New tag name')" />
+                    <flux:error name="newTagName" />
                 </div>
                 <flux:button type="submit">{{ __('Add') }}</flux:button>
             </form>

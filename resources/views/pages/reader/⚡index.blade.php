@@ -5,6 +5,7 @@ use App\Models\Entry;
 use App\Services\Reader\EntryQuery;
 use App\Services\Reader\EntryStates;
 use App\Services\Reader\ReaderSource;
+use App\Services\Reader\TopStories;
 use Flux\Flux;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -68,6 +69,7 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
             'feed' => Auth::user()->subscriptions()->with('feed')->where('feed_id', $source->id)->first()?->displayTitle() ?? __('Feed'),
             'folder' => Auth::user()->folders()->find($source->id)?->name ?? __('Folder'),
             'tag' => '#'.(Auth::user()->tags()->find($source->id)?->name ?? __('Tag')),
+            'top' => __('Top stories'),
             default => __('All stories'),
         };
     }
@@ -96,13 +98,31 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
     #[Computed]
     public function entries(): Collection
     {
+        if ($this->isTop()) {
+            return app(TopStories::class)->for(Auth::user());
+        }
+
         return $this->query()->with('feed:id,title,url,site_url')->limit($this->limit + 1)->get();
     }
 
     #[Computed]
     public function hasMore(): bool
     {
-        return $this->entries->count() > $this->limit;
+        return ! $this->isTop() && $this->entries->count() > $this->limit;
+    }
+
+    /** CVEs and source counts for the listed entries and the open entry. */
+    #[Computed]
+    public function signals(): array
+    {
+        $ids = $this->entries->pluck('id')->push($this->entryId)->filter()->unique()->values()->all();
+
+        return app(EntryQuery::class)->signalsFor($ids);
+    }
+
+    public function isTop(): bool
+    {
+        return $this->parsedSource()->type === 'top';
     }
 
     #[Computed]
@@ -371,7 +391,11 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
                 </div>
             </div>
 
-            <div class="flex items-center gap-2">
+            @if ($this->isTop())
+                <flux:text size="sm">{{ __('The most covered and most severe stories of the last 48 hours, one per story.') }}</flux:text>
+            @endif
+
+            <div @class(['flex items-center gap-2', 'hidden' => $this->isTop()])>
                 <flux:input wire:model.live.debounce.400ms="search" x-ref="search" size="sm" icon="magnifying-glass"
                     :placeholder="__('Search')" class="flex-1" clearable kbd="/" />
 
@@ -417,13 +441,18 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
                         data-river-id="{{ $item->id }}" data-url="{{ $item->url }}"
                         x-data="{ read: @js($item->isRead()) }"
                         x-bind:class="read && 'bg-zinc-100 dark:bg-zinc-950/60'"
-                        @class(['border-b border-zinc-200 transition-colors duration-500 dark:border-zinc-800', 'bg-zinc-100 dark:bg-zinc-950/60' => $item->isRead()])>
-                        <x-reader.article :entry="$item" variant="river" :expanded="in_array($item->id, $expanded, true)">
+                        @class([
+                            'border-b border-zinc-200 transition-colors duration-500 dark:border-zinc-800',
+                            'bg-zinc-100 dark:bg-zinc-950/60' => $item->isRead(),
+                            'border-s-4 highlight-'.$item->highlight() => $item->highlight(),
+                        ])>
+                        <x-reader.article :entry="$item" variant="river" :expanded="in_array($item->id, $expanded, true)" :signals="$this->signals[$item->id] ?? null">
                             <x-slot:badges>
                                 <span x-show="! read" class="rounded-full bg-emerald-100 px-2 py-0.5 text-[0.65rem] font-semibold tracking-wide text-emerald-800 uppercase dark:bg-emerald-900/60 dark:text-emerald-300">{{ __('New') }}</span>
                                 @if ($item->isStarred())
                                     <flux:icon.star variant="micro" class="text-amber-500" />
                                 @endif
+                                <x-reader.signals :signals="$this->signals[$item->id] ?? null" />
                                 <x-reader.tag-chips :tags="$this->entryTags[$item->id] ?? []" />
                             </x-slot:badges>
                             <x-slot:actions>
@@ -447,8 +476,12 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
                     @class([
                         'group relative flex w-full gap-3 border-b border-zinc-100 px-4 py-3 text-start transition-colors dark:border-zinc-800',
                         'bg-emerald-50 dark:bg-emerald-950/40' => $item->id === $entryId,
-                        'hover:bg-zinc-50 dark:hover:bg-zinc-800/60' => $item->id !== $entryId,
+                        'hover:bg-zinc-50 dark:hover:bg-zinc-800/60' => $item->id !== $entryId && ! $item->highlight(),
+                        'highlight-'.$item->highlight() => $item->highlight() && $item->id !== $entryId,
                     ])>
+                    @if ($item->highlight() && $item->id !== $entryId)
+                        <span @class(['absolute inset-y-0 start-0 w-1', 'highlight-bar-'.$item->highlight()])></span>
+                    @endif
                     @if ($item->id === $entryId)
                         <span class="absolute inset-y-0 start-0 w-0.5 bg-emerald-600 dark:bg-emerald-400"></span>
                     @endif
@@ -484,7 +517,13 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
                             <span class="mt-1 line-clamp-2 block text-sm text-zinc-600 dark:text-zinc-400">{{ $item->summary }}</span>
                         @endif
 
-                        <x-reader.tag-chips :tags="$this->entryTags[$item->id] ?? []" class="mt-1.5" />
+                        <span class="mt-1.5 flex flex-wrap items-center gap-1 empty:hidden">
+                            @if ($this->isTop() && $item->top_sources > 1)
+                                <flux:badge size="sm" color="emerald" icon="newspaper">{{ trans_choice(':count source|:count sources', $item->top_sources) }}</flux:badge>
+                            @endif
+                            <x-reader.signals :signals="$this->isTop() ? array_merge($this->signals[$item->id] ?? [], ['sources' => 1]) : ($this->signals[$item->id] ?? null)" />
+                            <x-reader.tag-chips :tags="$this->entryTags[$item->id] ?? []" />
+                        </span>
                     </span>
 
                     @if ($layout === 'cards' && $item->image_url)
@@ -552,7 +591,7 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
             </div>
 
             <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain" x-ref="pane">
-                <x-reader.article :entry="$entry" wire:key="article-{{ $entry->id }}">
+                <x-reader.article :entry="$entry" wire:key="article-{{ $entry->id }}" :signals="$this->signals[$entry->id] ?? null">
                     <x-slot:badges>
                         <x-reader.tag-chips :tags="$this->entryTags[$entry->id] ?? []" />
                     </x-slot:badges>

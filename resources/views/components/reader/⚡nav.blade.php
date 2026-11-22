@@ -89,6 +89,9 @@ new class extends Component {
         <flux:sidebar.item icon="newspaper" :href="$link('all')" :current="$current === 'all'" :badge="$this->badge($counts->sum())" wire:navigate>
             {{ __('All stories') }}
         </flux:sidebar.item>
+        <flux:sidebar.item icon="fire" :href="$link('top')" :current="$current === 'top'" wire:navigate>
+            {{ __('Top stories') }}
+        </flux:sidebar.item>
         <flux:sidebar.item icon="star" :href="$link('starred')" :current="$current === 'starred'" :badge="$this->badge($this->collections['starred'])" wire:navigate>
             {{ __('Starred') }}
         </flux:sidebar.item>

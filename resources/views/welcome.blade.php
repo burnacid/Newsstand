@@ -17,7 +17,7 @@
                         <flux:button :href="route('dashboard')" variant="primary" size="sm">{{ __('Open Newsstand') }}</flux:button>
                     @else
                         <flux:button :href="route('login')" variant="ghost" size="sm">{{ __('Log in') }}</flux:button>
-                        @if (Route::has('register'))
+                        @if (Route::has('register') && \App\Support\Registration::isOpen())
                             <flux:button :href="route('register')" variant="primary" size="sm">{{ __('Create account') }}</flux:button>
                         @endif
                     @endauth

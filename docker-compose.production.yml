@@ -1,0 +1,84 @@
+# Newsstand production stack.
+#
+#   cp .env.production.example .env.production   # then edit it
+#   docker compose --env-file .env.production -f docker-compose.production.yml up -d --build
+#
+# Put a TLS-terminating reverse proxy (Caddy, Traefik, nginx, Cloudflare Tunnel)
+# in front of port ${APP_PORT:-8080}. See README.md.
+
+name: newsstand-production
+
+x-app: &app
+  build: .
+  image: newsstand:latest
+  env_file: .env.production
+  restart: unless-stopped
+  volumes:
+    - storage:/app/storage
+
+services:
+  app:
+    <<: *app
+    environment:
+      CONTAINER_ROLE: app
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    depends_on:
+      pgsql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Queue worker: feed fetching, CVE lookups, rules, emails.
+  horizon:
+    <<: *app
+    command: ["php", "artisan", "horizon"]
+    environment:
+      CONTAINER_ROLE: worker
+    healthcheck:
+      disable: true
+    depends_on:
+      app:
+        condition: service_healthy
+
+  # Runs scheduled tasks every minute (fetching, KEV sync, digests, pruning).
+  scheduler:
+    <<: *app
+    command: ["php", "artisan", "schedule:work"]
+    environment:
+      CONTAINER_ROLE: worker
+    healthcheck:
+      disable: true
+    depends_on:
+      app:
+        condition: service_healthy
+
+  pgsql:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-newsstand}
+      POSTGRES_USER: ${DB_USERNAME:-newsstand}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env.production}
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-q", "-d", "${DB_DATABASE:-newsstand}", "-U", "${DB_USERNAME:-newsstand}"]
+      interval: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 20
+
+volumes:
+  storage:
+  pgdata:
+  redisdata:

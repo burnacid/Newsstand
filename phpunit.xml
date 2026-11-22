@@ -22,6 +22,7 @@
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="NEWSSTAND_BLOCK_PRIVATE_HOSTS" value="false"/>
+        <env name="NEWSSTAND_SCAN_ARTICLES" value="false"/>
         <env name="BROADCAST_CONNECTION" value="null"/>
         <env name="CACHE_STORE" value="array"/>
         <env name="DB_CONNECTION" value="sqlite"/>

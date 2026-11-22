@@ -4,6 +4,8 @@
     'variant' => 'pane',
     // River only: show the full text instead of the preview.
     'expanded' => false,
+    // Security / coverage signals from EntryQuery::signalsFor(), shown under the full text.
+    'signals' => null,
 ])
 
 @php($river = $variant === 'river')
@@ -82,6 +84,8 @@
                 <p class="text-zinc-500 italic">{{ __('This story has no text in the feed.') }}</p>
             @endif
         </div>
+
+        <x-reader.signals :signals="$signals" variant="full" />
 
         <div @class(['flex flex-wrap items-center gap-2 pt-6 text-zinc-300 dark:text-zinc-700', 'rule-double mt-12' => ! $river, 'mt-8' => $river])>
             @if ($river)

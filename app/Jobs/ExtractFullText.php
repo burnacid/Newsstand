@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\Entry;
 use App\Services\Feeds\FullTextExtractor;
+use App\Services\Security\CveExtractor;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 
@@ -19,8 +20,11 @@ class ExtractFullText implements ShouldQueue
 
     public function __construct(public Entry $entry) {}
 
-    public function handle(FullTextExtractor $extractor): void
+    public function handle(FullTextExtractor $extractor, CveExtractor $cves): void
     {
-        $extractor->extract($this->entry);
+        // The full article may mention CVEs the feed summary didn't.
+        if ($extractor->extract($this->entry) && $cves->extract($this->entry) !== []) {
+            EvaluateRules::dispatch([$this->entry->id]);
+        }
     }
 }

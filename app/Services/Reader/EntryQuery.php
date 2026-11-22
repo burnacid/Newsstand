@@ -2,6 +2,7 @@
 
 namespace App\Services\Reader;
 
+use App\Models\Cve;
 use App\Models\Entry;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
@@ -45,6 +46,11 @@ class EntryQuery
             'folder' => $query->whereIn('entries.feed_id', $this->subscribedFeedIds($user, $source->id)),
             default => $query->whereIn('entries.feed_id', $this->subscribedFeedIds($user)),
         };
+
+        // Stories muted by a rule stay out of feed listings (still visible in your collections).
+        if (! $source->isCollection()) {
+            $query->whereNull('eu.muted_at');
+        }
 
         if ($unreadOnly) {
             $query->where(function (Builder $q) use ($source, $keepIds) {
@@ -147,6 +153,43 @@ class EntryQuery
             ->groupBy('entry_id');
     }
 
+    /**
+     * Security and coverage signals for display: CVEs (with score / KEV) and
+     * how many feeds cover the story.
+     *
+     * @param  list<int>  $entryIds
+     * @return array<int, array{cves: Collection<int, Cve>, sources: int}>
+     */
+    public function signalsFor(array $entryIds): array
+    {
+        if ($entryIds === []) {
+            return [];
+        }
+
+        $cves = Cve::query()
+            ->join('cve_entry', 'cve_entry.cve_id', '=', 'cves.id')
+            ->whereIn('cve_entry.entry_id', $entryIds)
+            ->orderByDesc('cves.in_kev')
+            ->orderByRaw('cves.cvss_score is null, cves.cvss_score desc')
+            ->get(['cves.*', 'cve_entry.entry_id'])
+            ->groupBy('entry_id');
+
+        $sources = DB::table('entries')
+            ->join('story_clusters', 'story_clusters.id', '=', 'entries.cluster_id')
+            ->whereIn('entries.id', $entryIds)
+            ->pluck('story_clusters.size', 'entries.id');
+
+        $signals = [];
+        foreach ($entryIds as $id) {
+            $signals[$id] = [
+                'cves' => $cves->get($id, collect())->values(),
+                'sources' => (int) ($sources[$id] ?? 1),
+            ];
+        }
+
+        return $signals;
+    }
+
     public function unreadCutoff(): Carbon
     {
         return Carbon::now()->subDays(config('newsstand.unread_max_age_days'));
@@ -163,7 +206,7 @@ class EntryQuery
      *
      * @param  Builder<Entry>  $query
      */
-    private function applySearch(Builder $query, string $search): void
+    public function applySearch(Builder $query, string $search): void
     {
         if (self::usesFullTextIndex()) {
             $query->whereRaw("entries.search_vector @@ websearch_to_tsquery('simple', ?)", [$search]);
@@ -183,13 +226,13 @@ class EntryQuery
     private function base(User $user): Builder
     {
         return Entry::query()
-            ->select('entries.*', 'eu.read_at', 'eu.starred_at', 'eu.read_later_at')
+            ->select('entries.*', 'eu.read_at', 'eu.starred_at', 'eu.read_later_at', 'eu.highlight', 'eu.muted_at')
             ->leftJoin('entry_user as eu', fn (JoinClause $j) => $j
                 ->on('eu.entry_id', '=', 'entries.id')
                 ->where('eu.user_id', $user->id));
     }
 
-    private function subscribedFeedIds(User $user, ?int $folderId = null): QueryBuilder
+    public function subscribedFeedIds(User $user, ?int $folderId = null): QueryBuilder
     {
         return DB::table('subscriptions')
             ->select('feed_id')
@@ -197,7 +240,7 @@ class EntryQuery
             ->when($folderId !== null, fn (QueryBuilder $q) => $q->where('folder_id', $folderId));
     }
 
-    private function taggedEntryIds(User $user, ?int $tagId = null): QueryBuilder
+    public function taggedEntryIds(User $user, ?int $tagId = null): QueryBuilder
     {
         return DB::table('entry_tag')
             ->select('entry_tag.entry_id')

@@ -20,6 +20,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
  * @property string|null $summary
  * @property string|null $content
  * @property bool $full_text_extracted
+ * @property bool $signals_processed
+ * @property bool $article_scanned
+ * @property int|null $cluster_id
  * @property string|null $image_url
  * @property CarbonImmutable $published_at
  */
@@ -35,6 +38,9 @@ class Entry extends Model
             'read_at' => 'datetime',
             'starred_at' => 'datetime',
             'read_later_at' => 'datetime',
+            'muted_at' => 'datetime',
+            'signals_processed' => 'boolean',
+            'article_scanned' => 'boolean',
         ];
     }
 
@@ -72,6 +78,23 @@ class Entry extends Model
         return $this->belongsTo(Feed::class);
     }
 
+    /** @return BelongsToMany<Cve, $this> */
+    public function cves(): BelongsToMany
+    {
+        return $this->belongsToMany(Cve::class);
+    }
+
+    /** @return BelongsTo<StoryCluster, $this> */
+    public function cluster(): BelongsTo
+    {
+        return $this->belongsTo(StoryCluster::class, 'cluster_id');
+    }
+
+    public function highlight(): ?string
+    {
+        return $this->getAttribute('highlight');
+    }
+
     /** @return BelongsToMany<Tag, $this> */
     public function tags(): BelongsToMany
     {
@@ -82,7 +105,7 @@ class Entry extends Model
     public function users(): BelongsToMany
     {
         return $this->belongsToMany(User::class)
-            ->withPivot(['read_at', 'starred_at', 'read_later_at'])
+            ->withPivot(['read_at', 'starred_at', 'read_later_at', 'highlight', 'muted_at'])
             ->withTimestamps();
     }
 }

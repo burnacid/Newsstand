@@ -47,6 +47,8 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'digest_enabled' => 'boolean',
+            'digest_sent_on' => 'date',
         ];
     }
 
@@ -60,6 +62,28 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     public function folders(): HasMany
     {
         return $this->hasMany(Folder::class)->orderBy('position')->orderBy('name');
+    }
+
+    /** @return HasMany<Dashboard, $this> */
+    public function dashboards(): HasMany
+    {
+        return $this->hasMany(Dashboard::class, 'owner_id')->orderBy('name');
+    }
+
+    /**
+     * Dashboards other people shared with this user.
+     *
+     * @return BelongsToMany<Dashboard, $this>
+     */
+    public function sharedDashboards(): BelongsToMany
+    {
+        return $this->belongsToMany(Dashboard::class)->withPivot('role')->withTimestamps()->orderBy('name');
+    }
+
+    /** @return HasMany<Rule, $this> */
+    public function rules(): HasMany
+    {
+        return $this->hasMany(Rule::class)->orderBy('position')->orderBy('id');
     }
 
     /** @return HasMany<Tag, $this> */
@@ -78,7 +102,7 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     public function entryStates(): BelongsToMany
     {
         return $this->belongsToMany(Entry::class)
-            ->withPivot(['read_at', 'starred_at', 'read_later_at'])
+            ->withPivot(['read_at', 'starred_at', 'read_later_at', 'highlight', 'muted_at'])
             ->withTimestamps();
     }
 

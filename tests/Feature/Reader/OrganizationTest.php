@@ -136,7 +136,7 @@ it('cannot use another user\'s tags', function () {
 
 it('manages tags on the feeds page', function () {
     Livewire::test('pages::feeds.index')
-        ->set('tagName', 'cve')
+        ->set('newTagName', 'cve')
         ->call('createTag')
         ->assertSee('cve');
 

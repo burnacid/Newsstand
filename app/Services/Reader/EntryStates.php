@@ -51,6 +51,36 @@ class EntryStates
         return count($ids);
     }
 
+    /**
+     * Set several state columns at once (used by rules). Existing values for
+     * other columns are left alone.
+     *
+     * @param  array<string, mixed>  $values  e.g. ['highlight' => 'red', 'starred_at' => now()]
+     */
+    public function setColumns(User $user, int $entryId, array $values): void
+    {
+        $allowed = array_intersect_key($values, array_flip(['read_at', 'starred_at', 'read_later_at', 'highlight', 'muted_at']));
+
+        if ($allowed === []) {
+            return;
+        }
+
+        $now = now();
+
+        DB::table('entry_user')->upsert(
+            [['user_id' => $user->id, 'entry_id' => $entryId, ...$allowed, 'created_at' => $now, 'updated_at' => $now]],
+            ['user_id', 'entry_id'],
+            [...array_keys($allowed), 'updated_at'],
+        );
+    }
+
+    /** Clear rule highlight and mute for an entry. */
+    public function clearRuleEffects(User $user, int $entryId): void
+    {
+        DB::table('entry_user')->where('user_id', $user->id)->where('entry_id', $entryId)
+            ->update(['highlight' => null, 'muted_at' => null, 'updated_at' => now()]);
+    }
+
     /** @param list<int> $entryIds */
     private function set(User $user, array $entryIds, string $column, bool $on): void
     {
