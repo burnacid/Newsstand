@@ -15,6 +15,11 @@
     <flux:menu.item :href="route('profile.edit')" icon="cog" wire:navigate>
         {{ __('Settings') }}
     </flux:menu.item>
+    {{-- Shown when the browser offers to install Newsstand (and it isn't running as the app already). --}}
+    <flux:menu.item icon="arrow-down-tray" x-data x-show="$store.pwa?.canInstall && !$store.pwa?.standalone" x-cloak
+        x-on:click="$store.pwa.install()" data-test="install-app">
+        {{ __('Install app') }}
+    </flux:menu.item>
 </flux:menu.radio.group>
 
 <flux:menu.separator />

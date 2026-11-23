@@ -24,15 +24,18 @@ Built with Laravel 13, Livewire 4 and Flux. Runs on PostgreSQL (recommended), My
   shared with other users as viewer or editor, or published as a public read-only link. Each viewer keeps their own
   read state. Team dashboards belong to the team: they use the team's feeds, its owners and admins manage them, and
   they stay when their creator leaves.
-- **Alerts** to email, ntfy, Gotify, Slack, Teams or Discord: for watchlist stories, watched products newly exploited
-  (CISA KEV), and rule matches. Never more than once per story per channel; bursts arrive as one summary.
+- **Alerts** as push notifications, or to email, ntfy, Gotify, Slack, Teams or Discord: for watchlist stories,
+  watched products newly exploited (CISA KEV), and rule matches. Never more than once per story per channel; bursts
+  arrive as one summary. Push goes to every device you turn it on for in Settings → Alerts (a team's push channel
+  reaches every member's devices).
 - **Teams**: shared feed folders, shared tags, team rules, a team watchlist with team alert channels, team
   dashboards and notes on stories, with owner / admin / member roles and expiring invite links. Read state stays
   personal.
 - **Daily digest** email, opt-in per user.
-- **Installable app (PWA)**: install Newsstand from the browser on desktop or phone; it opens on the reader, with
-  shortcuts to Dashboards and Security, and shows an offline page without a connection. Pages are never cached on
-  the device, only the app's static files. Needs HTTPS (or `localhost`).
+- **Installable app (PWA)**: install Newsstand from the browser on desktop or phone ("Install app" in the user
+  menu); it opens on the reader, with shortcuts to Dashboards and Security, tells you when a new version is ready,
+  and shows an offline page without a connection. Share a link to Newsstand from your phone to subscribe to that
+  site. Pages are never cached on the device, only the app's static files. Needs HTTPS (or `localhost`).
 
 ## Local development
 
@@ -51,6 +54,11 @@ The scheduler fetches feeds every minute; in development run it alongside: `php 
 
 **Docker (PostgreSQL + Redis):** `docker compose up -d` uses `compose.yaml` (Laravel Sail). On Windows, call
 `docker compose` directly, or use the `sail` script from WSL2.
+
+**Push notifications on Windows PHP:** PHP's OpenSSL on Windows can't make the keys push needs until the
+`OPENSSL_CONF` environment variable points to the `openssl.cnf` PHP ships with, for example
+`setx OPENSSL_CONF "C:\php\extras\ssl\openssl.cnf"` (then open a new terminal). Without it, Settings → Alerts says
+push isn't available, and the two push tests that encrypt for real are skipped. Docker and Linux need nothing.
 
 ### Tests
 
@@ -129,6 +137,8 @@ All Newsstand settings are in `config/newsstand.php`, most with an environment v
 | `NVD_API_KEY` | none | Higher NVD rate limits for CVSS lookups ([request one](https://nvd.nist.gov/developers/request-an-api-key)) |
 | `NEWSSTAND_KEV_URL` | CISA's official GitHub copy | Source of the Known Exploited Vulnerabilities catalog |
 | `NEWSSTAND_ALERTS_ALLOW_PRIVATE` | `false` | Allow alert channels on LAN addresses (self-hosted ntfy/Gotify); also under Administration → Settings |
+| `NEWSSTAND_PUSH_PUBLIC_KEY`, `NEWSSTAND_PUSH_PRIVATE_KEY` | generated | Push notification keys. Left empty, a pair is generated once and stored encrypted with `APP_KEY`; set them (`php artisan push:keys`) to keep them across a new `APP_KEY` or server. Changing them means turning push on again on every device |
+| `NEWSSTAND_PUSH_SUBJECT` | `mailto:` + `MAIL_FROM_ADDRESS` | Contact address push services see |
 | `APP_TIMEZONE` | `UTC` | Used for digest delivery times |
 | `TRUSTED_PROXIES` | none | Reverse proxy addresses, or `*` |
 

@@ -13,6 +13,7 @@ use App\Models\Feed;
 use App\Models\Setting;
 use App\Models\StoryCluster;
 use App\Models\User;
+use App\Services\Alerts\PushService;
 use App\Services\Digest\DigestBuilder;
 use App\Services\Feeds\FeedRefresher;
 use App\Services\Security\ArticleScanner;
@@ -21,6 +22,23 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schedule;
 use Illuminate\Support\Str;
+use Minishlink\WebPush\VAPID;
+
+Artisan::command('push:keys', function () {
+    if (! PushService::supported()) {
+        $this->error('PHP’s OpenSSL cannot create the keys (on Windows, set OPENSSL_CONF to PHP’s extras/ssl/openssl.cnf).');
+
+        return 1;
+    }
+
+    $keys = VAPID::createVapidKeys();
+    $this->line('Add these to .env to pin the push notification keys (devices must turn push on again after a change):');
+    $this->newLine();
+    $this->line('NEWSSTAND_PUSH_PUBLIC_KEY='.$keys['publicKey']);
+    $this->line('NEWSSTAND_PUSH_PRIVATE_KEY='.$keys['privateKey']);
+
+    return 0;
+})->purpose('Print a new key pair for push notifications');
 
 Artisan::command('feeds:dispatch-due', function () {
     $feeds = Feed::due()->limit(config('newsstand.fetch.batch_size'))->get();

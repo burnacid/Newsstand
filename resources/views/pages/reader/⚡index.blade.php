@@ -446,7 +446,7 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
 
                 <flux:dropdown position="bottom" align="end">
                     <flux:button size="sm" :variant="$period ? 'filled' : 'ghost'" icon="calendar" data-test="period-filter"
-                        :tooltip="__('Time period')">
+                        :aria-label="__('Time period')" :title="__('Time period')">
                         <span class="max-sm:hidden">{{ ['' => __('Any time'), 'day' => __('24 h'), 'week' => __('7 days'), 'month' => __('30 days')][$period] ?? __('Any time') }}</span>
                     </flux:button>
                     <flux:menu>
@@ -479,9 +479,10 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
         </header>
 
         <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain" x-ref="list" data-scroll-area x-on:scroll.passive="riverScroll()">
-            <div x-show="newCount > 0" x-cloak wire:ignore class="sticky top-0 z-10 flex justify-center px-4 py-2">
+            {{-- Read through $data so a re-run after teardown finds "undefined", not a ReferenceError. --}}
+            <div x-show="($data.newCount ?? 0) > 0" x-cloak wire:ignore class="sticky top-0 z-10 flex justify-center px-4 py-2">
                 <flux:button size="sm" variant="primary" icon="arrow-up" x-on:click="showNew()" data-test="show-new">
-                    <span x-text="newCount >= 100 ? @js(__('99+ new stories')) : (newCount === 1 ? @js(__('1 new story')) : @js(__(':count new stories')).replace(':count', newCount))"></span>
+                    <span x-text="(n => n >= 100 ? @js(__('99+ new stories')) : (n === 1 ? @js(__('1 new story')) : @js(__(':count new stories')).replace(':count', n)))($data.newCount ?? 0)"></span>
                 </flux:button>
             </div>
             @if ($layout === 'river' && $this->entries->isNotEmpty())

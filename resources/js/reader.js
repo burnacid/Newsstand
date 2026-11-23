@@ -25,8 +25,11 @@ export default () => ({
     },
 
     destroy() {
-        this.flushSeen();
+        // A new-stories check still in flight must not write to a torn-down component: Alpine would re-run the
+        // bar's x-show without its scope and log "newCount is not defined".
+        this.destroyed = true;
         clearInterval(this.pollTimer);
+        this.flushSeen();
         document.removeEventListener('livewire:navigating', this.onLeave);
         window.removeEventListener('pagehide', this.onLeave);
         document.removeEventListener('visibilitychange', this.onVisible);
@@ -35,12 +38,14 @@ export default () => ({
     // --- New stories ---
 
     async checkNew() {
-        if (document.hidden || this.checking) return;
+        if (document.hidden || this.checking || this.destroyed) return;
 
         this.checking = true;
 
         try {
             const count = await this.$wire.countNew();
+
+            if (this.destroyed) return;
 
             // Sidebar unread counts follow along.
             if (count > this.newCount) window.Livewire.dispatch('unread-changed');
@@ -56,7 +61,10 @@ export default () => ({
     async showNew() {
         this.newCount = 0;
         await this.$wire.showNew();
-        this.$refs.list.scrollTo({ top: 0, behavior: 'smooth' });
+
+        if (this.destroyed) return;
+
+        this.$refs.list?.scrollTo({ top: 0, behavior: 'smooth' });
     },
 
     isRiver() {
@@ -157,6 +165,27 @@ export default () => ({
         }
 
         if (event.metaKey || event.ctrlKey || event.altKey || document.querySelector('dialog[open]')) {
+            return;
+        }
+
+        // Keys pressed inside an open menu or popover belong to it: Escape there closes the menu, not the story.
+        // (Closing the story at the same moment re-rendered the menu mid-close and threw a popover error.)
+        // (Not the dropdown's trigger button: once the menu is closed, Escape there closes the story again.)
+        if (target.closest?.('[popover], ui-menu, [data-flux-menu]')) {
+            return;
+        }
+
+        // A menu can stay open with focus outside it (a toggle re-renders the story and focus lands on the trigger);
+        // Escape then closes that menu first.
+        // (Menus only: the toast area and tooltips are popovers too, and must not swallow shortcuts.)
+        const openPopover = document.querySelector('ui-menu:popover-open, [data-flux-menu]:popover-open');
+
+        if (openPopover) {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                openPopover.hidePopover();
+            }
+
             return;
         }
 

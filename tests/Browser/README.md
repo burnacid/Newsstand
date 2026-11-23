@@ -19,7 +19,10 @@ node tests/Browser/river-check.mjs        # river marks scrolled-past stories re
 node tests/Browser/teams-check.mjs        # create a team, folder, invite link, team watchlist, a note; deletes it all again
 node tests/Browser/dashboard-sort-check.mjs  # team dashboard in the sidebar, drag widgets to reorder; deletes it all again
 node tests/Browser/team-tags-check.mjs     # team tag from the reader, tag widget on a team dashboard, a team rule; deletes it all again
-node tests/Browser/pwa-check.mjs           # manifest, service worker takes control, offline page, back online
+node tests/Browser/pwa-check.mjs           # manifest, service worker, Install app, update notice, share link, offline page
+node tests/Browser/push-check.mjs          # push on/off for this device, a push channel (server needs OPENSSL_CONF on Windows)
+node tests/Browser/tag-menu-check.mjs      # tag menu: toggle + Escape closes only the menu; Escape then closes the story
+node tests/Browser/reader-teardown-check.mjs  # leave the reader mid-load many times: no JS errors; new-stories bar works
 ```
 
 They use the installed Microsoft Edge. To use Playwright's own Chromium instead:

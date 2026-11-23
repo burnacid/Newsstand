@@ -38,6 +38,18 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::livewire('teams/join/{token}', 'pages::teams.join')->middleware('throttle:30,1')->name('teams.join');
     Route::livewire('teams/{team}', 'pages::teams.show')->whereNumber('team')->name('teams.show');
     Route::get('feeds/export', OpmlExportController::class)->name('feeds.export');
+
+    // "Share to Newsstand" from a phone's share menu (the manifest's share_target): subscribe to the shared site.
+    // Apps put the link in url, text or title, sometimes with words around it.
+    Route::get('share', function (Request $request) {
+        $link = collect(['url', 'text', 'title'])
+            ->map(fn (string $field) => $request->query($field))
+            ->filter(fn ($value) => is_string($value))
+            ->map(fn (string $value) => preg_match('~https?://[^\s<>"\']+~i', $value, $match) ? rtrim($match[0], '.,;:!?)') : null)
+            ->first(fn (?string $value) => $value !== null);
+
+        return redirect()->route('feeds.index', $link ? ['add' => $link] : []);
+    })->name('share');
 });
 
 Route::middleware(['auth', 'verified', 'can:admin'])->prefix('admin')->name('admin.')->group(function () {

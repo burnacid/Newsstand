@@ -565,7 +565,7 @@ new #[Title('Dashboard')] class extends Component {
                     <h2 class="min-w-0 flex-1 truncate font-serif text-lg font-semibold">{{ $this->widgetTitle($widget) }}</h2>
                     @if ($editing)
                         <flux:dropdown align="end">
-                            <flux:button size="xs" variant="subtle" icon="arrows-pointing-out" :tooltip="__('Size')" data-test="widget-size" />
+                            <flux:button size="xs" variant="subtle" icon="arrows-pointing-out" :aria-label="__('Size')" :title="__('Size')" data-test="widget-size" />
                             <flux:menu>
                                 @foreach (['normal' => __('Normal'), 'wide' => __('Wide'), 'full' => __('Full width')] as $size => $label)
                                     <flux:menu.item wire:click="resizeWidget({{ $widget->id }}, '{{ $size }}')" :icon="$widget->size === $size ? 'check' : null" data-test="widget-size-{{ $size }}">{{ $label }}</flux:menu.item>

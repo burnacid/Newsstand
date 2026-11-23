@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\User;
+use Livewire\Livewire;
 
 it('serves the service worker with the release version', function () {
     config(['newsstand.version' => '9.8.7']);
@@ -62,6 +63,59 @@ it('ships an offline page and the files the worker precaches', function () {
     foreach ($urls[1] as $url) {
         expect(public_path(ltrim($url, '/')))->toBeFile();
     }
+});
+
+it('accepts links shared from other apps', function () {
+    $manifest = json_decode(file_get_contents(public_path('site.webmanifest')), true, flags: JSON_THROW_ON_ERROR);
+
+    expect($manifest['share_target'])->toMatchArray(['action' => '/share', 'method' => 'GET'])
+        ->and($manifest['share_target']['params'])->toBe(['title' => 'title', 'text' => 'text', 'url' => 'url']);
+});
+
+it('sends a shared link to the feeds page to subscribe', function (array $query, ?string $expected) {
+    $this->actingAs(User::factory()->create());
+
+    $this->get(route('share', $query))
+        ->assertRedirect(route('feeds.index', $expected ? ['add' => $expected] : []));
+})->with([
+    'url field' => [['url' => 'https://krebsonsecurity.com/2026/11/story/'], 'https://krebsonsecurity.com/2026/11/story/'],
+    'link inside the text' => [['title' => 'Read this', 'text' => 'Look at this: https://example.com/post.'], 'https://example.com/post'],
+    'url wins over text' => [['url' => 'https://a.example/', 'text' => 'https://b.example/'], 'https://a.example/'],
+    'nothing usable' => [['text' => 'just words, javascript:alert(1)'], null],
+]);
+
+it('asks guests to sign in before sharing', function () {
+    $this->get(route('share', ['url' => 'https://example.com/']))->assertRedirect(route('login'));
+});
+
+it('fills in the shared address on the feeds page', function () {
+    $this->actingAs(User::factory()->create());
+
+    Livewire::withQueryParams(['add' => 'https://example.com/blog'])
+        ->test('pages::feeds.index')
+        ->assertSet('url', 'https://example.com/blog')
+        ->assertSee('Shared to Newsstand');
+
+    Livewire::withQueryParams(['add' => 'javascript:alert(1)'])
+        ->test('pages::feeds.index')
+        ->assertSet('url', '')
+        ->assertDontSee('Shared to Newsstand');
+});
+
+it('shows push notifications and opens them on click', function () {
+    $script = file_get_contents(resource_path('pwa/sw.js'));
+
+    expect($script)->toContain("addEventListener('push'")
+        ->and($script)->toContain('showNotification')
+        ->and($script)->toContain("addEventListener('notificationclick'");
+});
+
+it('offers to install the app and announces updates', function () {
+    $this->actingAs(User::factory()->create());
+
+    $this->get(route('feeds.index'))
+        ->assertSee('data-test="install-app"', false)
+        ->assertSee('data-test="pwa-update"', false);
 });
 
 it('links the manifest from every page', function () {

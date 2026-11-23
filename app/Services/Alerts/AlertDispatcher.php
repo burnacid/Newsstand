@@ -11,6 +11,7 @@ use App\Services\Alerts\Senders\DiscordSender;
 use App\Services\Alerts\Senders\EmailSender;
 use App\Services\Alerts\Senders\GotifySender;
 use App\Services\Alerts\Senders\NtfySender;
+use App\Services\Alerts\Senders\PushSender;
 use App\Services\Alerts\Senders\SlackSender;
 use App\Services\Alerts\Senders\TeamsSender;
 use Illuminate\Database\Eloquent\Builder;
@@ -38,6 +39,7 @@ class AlertDispatcher
             'slack' => app(SlackSender::class),
             'teams' => app(TeamsSender::class),
             'discord' => app(DiscordSender::class),
+            'push' => app(PushSender::class),
             default => throw new InvalidArgumentException("Unknown alert channel type [{$type}]."),
         };
     }
