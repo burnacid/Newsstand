@@ -5,6 +5,7 @@ use App\Services\Teams\FeedAccess;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Component;
@@ -14,10 +15,19 @@ new #[Title('Dashboards')] class extends Component {
 
     public string $template = 'security';
 
+    /** Team to attach the new dashboard to ('' = personal). */
+    public string $teamId = '';
+
+    #[Computed]
+    public function teams(): Collection
+    {
+        return Auth::user()->teams()->get(['teams.id', 'teams.name']);
+    }
+
     #[Computed]
     public function owned(): Collection
     {
-        return Auth::user()->dashboards()->withCount(['widgets', 'members'])->get();
+        return Auth::user()->dashboards()->with('team:id,name')->withCount(['widgets', 'members'])->get();
     }
 
     #[Computed]
@@ -40,9 +50,16 @@ new #[Title('Dashboards')] class extends Component {
 
     public function create(): void
     {
-        $this->validate(['name' => ['required', 'string', 'max:100'], 'template' => ['in:security,blank']]);
+        $this->validate([
+            'name' => ['required', 'string', 'max:100'],
+            'template' => ['in:security,blank'],
+            'teamId' => ['nullable', Rule::in($this->teams->pluck('id')->map(fn ($id) => (string) $id)->all())],
+        ], [], ['teamId' => __('team')]);
 
-        $dashboard = Auth::user()->dashboards()->create(['name' => $this->name]);
+        $dashboard = Auth::user()->dashboards()->create([
+            'name' => $this->name,
+            'team_id' => $this->teamId === '' ? null : (int) $this->teamId,
+        ]);
 
         if ($this->template === 'security') {
             // A sensible starting point; edit freely afterwards.
@@ -79,6 +96,17 @@ new #[Title('Dashboards')] class extends Component {
                 <flux:select.option value="security">{{ __('Start from security briefing') }}</flux:select.option>
                 <flux:select.option value="blank">{{ __('Start empty') }}</flux:select.option>
             </flux:select>
+            @if ($this->teams->isNotEmpty())
+                <div class="sm:max-w-48">
+                    <flux:select wire:model="teamId" data-test="dashboard-team">
+                        <flux:select.option value="">{{ __('Personal') }}</flux:select.option>
+                        @foreach ($this->teams as $team)
+                            <flux:select.option value="{{ $team->id }}">{{ __('Team :team', ['team' => $team->name]) }}</flux:select.option>
+                        @endforeach
+                    </flux:select>
+                    <flux:error name="teamId" />
+                </div>
+            @endif
             <flux:button type="submit" variant="primary" data-test="create-dashboard">{{ __('Create') }}</flux:button>
         </form>
     </flux:card>
@@ -93,11 +121,14 @@ new #[Title('Dashboards')] class extends Component {
                     <div class="font-serif text-lg font-semibold">{{ $dashboard->name }}</div>
                     <div class="text-sm text-zinc-500">{{ trans_choice(':count widget|:count widgets', $dashboard->widgets_count) }}</div>
                 </div>
+                @if ($dashboard->id === auth()->user()->default_dashboard_id)
+                    <flux:badge size="sm" icon="star" color="amber">{{ __('Default') }}</flux:badge>
+                @endif
                 @if ($dashboard->members_count)
                     <flux:badge size="sm" icon="users">{{ trans_choice('Shared with :count|Shared with :count', $dashboard->members_count) }}</flux:badge>
                 @endif
-                @if ($dashboard->team_id)
-                    <flux:badge size="sm" icon="user-group">{{ __('Team') }}</flux:badge>
+                @if ($dashboard->team)
+                    <flux:badge size="sm" icon="user-group">{{ $dashboard->team->name }}</flux:badge>
                 @endif
                 @if ($dashboard->share_token)
                     <flux:badge size="sm" icon="globe-alt" color="emerald">{{ __('Public link') }}</flux:badge>
@@ -119,6 +150,9 @@ new #[Title('Dashboards')] class extends Component {
                         <div class="font-serif text-lg font-semibold">{{ $dashboard->name }}</div>
                         <div class="text-sm text-zinc-500">{{ __('by :name', ['name' => $dashboard->owner->name]) }}@if ($dashboard->team) · {{ __('team :team', ['team' => $dashboard->team->name]) }}@endif · {{ trans_choice(':count widget|:count widgets', $dashboard->widgets_count) }}</div>
                     </div>
+                    @if ($dashboard->id === auth()->user()->default_dashboard_id)
+                        <flux:badge size="sm" icon="star" color="amber">{{ __('Default') }}</flux:badge>
+                    @endif
                     <flux:badge size="sm">{{ $dashboard->viewer_role === 'editor' ? __('Can edit') : __('Can view') }}</flux:badge>
                 </a>
             @endforeach

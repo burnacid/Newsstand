@@ -4,15 +4,15 @@ use App\Http\Controllers\OpmlExportController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
-Route::view('/', 'welcome')->name('home');
+// Signed-in visitors go straight to the reader.
+Route::get('/', fn (Request $request) => $request->user() ? redirect()->route('reader') : view('welcome'))->name('home');
 
 Route::middleware(['auth', 'verified'])->group(function () {
-    // Home after login: your most recently updated dashboard, or the reader.
+    // The sidebar "Dashboards" link: your default dashboard, or the overview when none is set.
     Route::get('dashboard', function (Request $request) {
-        $dashboard = $request->user()->dashboards()->reorder()->latest('updated_at')->first()
-            ?? $request->user()->sharedDashboards()->reorder()->latest('dashboard_user.updated_at')->first();
+        $dashboard = $request->user()->defaultDashboard();
 
-        return $dashboard ? redirect()->route('dashboards.show', $dashboard) : redirect()->route('reader');
+        return $dashboard ? redirect()->route('dashboards.show', $dashboard) : redirect()->route('dashboards.index');
     })->name('dashboard');
 
     Route::livewire('dashboards', 'pages::dashboards.index')->name('dashboards.index');

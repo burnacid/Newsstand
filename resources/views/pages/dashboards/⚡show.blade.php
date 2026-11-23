@@ -176,6 +176,27 @@ new #[Title('Dashboard')] class extends Component {
         Flux::modal('story')->show();
     }
 
+    // --- Default ---
+
+    public function isDefault(): bool
+    {
+        return Auth::user()->default_dashboard_id === $this->dashboardId;
+    }
+
+    /** The sidebar "Dashboards" link opens your default dashboard. */
+    public function toggleDefault(): void
+    {
+        $this->authorize('view', $this->dashboard);
+
+        $user = Auth::user();
+        $user->forceFill(['default_dashboard_id' => $this->isDefault() ? null : $this->dashboardId])->save();
+
+        $this->dispatch('dashboards-changed');
+        Flux::toast(text: $this->isDefault()
+            ? __('“:name” is now your default dashboard.', ['name' => $this->dashboard->name])
+            : __('No default dashboard. The Dashboards link opens the overview.'));
+    }
+
     // --- Editing widgets ---
 
     public function toggleEditing(): void
@@ -322,6 +343,7 @@ new #[Title('Dashboard')] class extends Component {
         $team = $teamId === '' ? null : $this->ownerTeams->firstWhere('id', (int) $teamId);
         $this->dashboard->forceFill(['team_id' => $team?->id])->save();
         unset($this->dashboard);
+        $this->dispatch('dashboards-changed');
 
         Flux::toast(variant: 'success', text: $team
             ? __('Shared with everyone in :team.', ['team' => $team->name])
@@ -369,6 +391,7 @@ new #[Title('Dashboard')] class extends Component {
 
         $this->dashboard->update(['name' => $this->dashboardName]);
         unset($this->dashboard);
+        $this->dispatch('dashboards-changed');
         Flux::modal('rename')->close();
     }
 
@@ -418,6 +441,10 @@ new #[Title('Dashboard')] class extends Component {
         </div>
 
         <div class="flex items-center gap-2">
+            <flux:button variant="ghost" icon="star" wire:click="toggleDefault" data-test="toggle-default"
+                :icon:variant="$this->isDefault() ? 'solid' : 'outline'" @class(['text-amber-500!' => $this->isDefault()])
+                :tooltip="$this->isDefault() ? __('Default dashboard (click to unset)') : __('Make this your default dashboard')"
+                :aria-pressed="$this->isDefault() ? 'true' : 'false'" />
             <div class="me-2 flex items-center rounded-lg bg-zinc-100 p-0.5 dark:bg-zinc-800" data-test="unread-toggle">
                 <flux:button size="sm" :variant="$unreadOnly ? 'subtle' : 'filled'" wire:click="$set('unreadOnly', false)">{{ __('All') }}</flux:button>
                 <flux:button size="sm" :variant="$unreadOnly ? 'filled' : 'subtle'" wire:click="$set('unreadOnly', true)" data-test="unread-only">{{ __('Unread') }}</flux:button>
@@ -435,7 +462,7 @@ new #[Title('Dashboard')] class extends Component {
                     <flux:button icon="share" data-test="share">{{ __('Share') }}</flux:button>
                 </flux:modal.trigger>
                 <flux:dropdown align="end">
-                    <flux:button variant="ghost" icon="ellipsis-horizontal" />
+                    <flux:button variant="ghost" icon="ellipsis-horizontal" data-test="dashboard-menu" />
                     <flux:menu>
                         <flux:modal.trigger name="rename"><flux:menu.item icon="pencil">{{ __('Rename') }}</flux:menu.item></flux:modal.trigger>
                         <flux:menu.item icon="trash" variant="danger" wire:click="deleteDashboard"
@@ -460,7 +487,8 @@ new #[Title('Dashboard')] class extends Component {
         </div>
     @endif
 
-    <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3" @if ($editing) wire:sort="sortWidget" @endif>
+    {{-- wire:sort only initializes when the element is created, so re-create the grid when switching to edit mode. --}}
+    <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3" wire:key="widgets-{{ $editing ? 'edit' : 'view' }}" @if ($editing) wire:sort="sortWidget" @endif>
         @foreach ($dashboard->widgets as $widget)
             @php($items = $this->contents[$widget->id] ?? collect())
             <section wire:key="widget-{{ $widget->id }}" wire:sort:item="{{ $widget->id }}"

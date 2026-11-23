@@ -15,7 +15,7 @@
             </div>
 
             <flux:sidebar.nav>
-                <flux:sidebar.item icon="squares-2x2" :href="route('dashboards.index')" :current="request()->routeIs('dashboards.*')" wire:navigate>
+                <flux:sidebar.item icon="squares-2x2" :href="route('dashboard')" :current="request()->routeIs('dashboard', 'dashboards.*')" wire:navigate>
                     {{ __('Dashboards') }}
                 </flux:sidebar.item>
                 <flux:sidebar.item icon="shield-exclamation" :href="route('security')" :current="request()->routeIs('security')" wire:navigate>

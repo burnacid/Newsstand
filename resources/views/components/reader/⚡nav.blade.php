@@ -1,29 +1,43 @@
 <?php
 
 use App\Actions\Feeds\Organizer;
+use App\Models\Dashboard;
 use App\Models\Folder;
 use App\Models\Subscription;
+use App\Models\Team;
 use App\Services\Teams\FeedAccess;
 use App\Services\Watchlist\WatchlistMatcher;
 use App\Services\Reader\EntryQuery;
 use App\Services\Reader\ReaderSource;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\On;
 use Livewire\Component;
 
 /*
- * Feed navigation for the app sidebar: collections, folders and feeds with unread counts.
+ * Feed navigation for the app sidebar: collections, a group per team (its dashboards and folders),
+ * personal folders and feeds with unread counts.
  */
 new class extends Component {
     public string $current = '';
 
     public function mount(): void
     {
-        $this->current = request()->routeIs('reader')
-            ? ReaderSource::parse(request()->query('s'))->key()
-            : '';
+        $dashboard = request()->route('dashboard');
+
+        $this->current = match (true) {
+            request()->routeIs('reader') => ReaderSource::parse(request()->query('s'))->key(),
+            request()->routeIs('dashboards.show') => 'dashboard:'.($dashboard instanceof Dashboard ? $dashboard->id : $dashboard),
+            default => '',
+        };
+    }
+
+    #[On('dashboards-changed')]
+    public function refreshTree(): void
+    {
+        unset($this->tree);
     }
 
     #[On('unread-changed')]
@@ -74,23 +88,48 @@ new class extends Component {
         $user = Auth::user();
         $subscriptions = Organizer::sortSubscriptions($user->subscriptions()->with('feed:id,title,url')->get());
 
-        // Team folders follow the personal ones, headed "Team · Folder".
-        $teamSubscriptions = Organizer::sortSubscriptions(
-            Subscription::query()->whereIn('team_id', FeedAccess::teamIds($user))->with('feed:id,title,url')->get()
-        );
-        $teamFolders = Folder::query()->whereIn('team_id', FeedAccess::teamIds($user))
-            ->with('team:id,name')->orderBy('position')->orderBy('name')->get();
-
-        $group = fn (Collection $subs) => fn (Folder $folder) => [
+        $folderGroup = fn (Collection $subs) => fn (Folder $folder) => [
             'folder' => $folder,
-            'heading' => $folder->team ? $folder->team->name.' · '.$folder->name : $folder->name,
             'subscriptions' => $subs->where('folder_id', $folder->id)->values(),
         ];
+        $hasFeeds = fn (array $group) => $group['subscriptions']->isNotEmpty();
+
+        // One group per team: its dashboards, then its folders and unfiled feeds.
+        $teamIds = FeedAccess::teamIds($user);
+        $teamSubscriptions = Organizer::sortSubscriptions(
+            Subscription::query()->whereIn('team_id', $teamIds)->with('feed:id,title,url')->get()
+        );
+        $teamFolders = Folder::query()->whereIn('team_id', $teamIds)->orderBy('position')->orderBy('name')->get();
+        // The default dashboard comes first wherever it is listed.
+        $defaultFirst = fn (Collection $dashboards) => $dashboards
+            ->sortBy(fn (Dashboard $d) => [$d->id === $user->default_dashboard_id ? 0 : 1, mb_strtolower($d->name)])->values();
+
+        $teamDashboards = Dashboard::query()->whereIn('team_id', $teamIds)->get(['id', 'name', 'team_id']);
+
+        // Personal: your own without a team, and ones shared with you directly (unless listed under one of your teams).
+        $personalDashboards = Dashboard::query()
+            ->where(fn ($q) => $q
+                ->where(fn ($q) => $q->where('owner_id', $user->id)->whereNull('team_id'))
+                ->orWhere(fn ($q) => $q
+                    ->whereIn('id', DB::table('dashboard_user')->select('dashboard_id')->where('user_id', $user->id))
+                    ->where(fn ($q) => $q->whereNull('team_id')->orWhereNotIn('team_id', $teamIds))))
+            ->get(['id', 'name', 'team_id']);
+
+        $teams = Team::query()->whereIn('id', $teamIds)->orderBy('name')->get(['id', 'name'])
+            ->map(fn (Team $team) => [
+                'team' => $team,
+                'dashboards' => $defaultFirst($teamDashboards->where('team_id', $team->id)),
+                'folders' => $teamFolders->where('team_id', $team->id)
+                    ->map($folderGroup($teamSubscriptions))->filter($hasFeeds)->values(),
+                'unfiled' => $teamSubscriptions->where('team_id', $team->id)->whereNull('folder_id')->values(),
+            ])
+            ->filter(fn (array $group) => $group['dashboards']->isNotEmpty() || $group['folders']->isNotEmpty() || $group['unfiled']->isNotEmpty())
+            ->values();
 
         return [
-            'folders' => $user->folders()->get()->map($group($subscriptions))
-                ->concat($teamFolders->map($group($teamSubscriptions)))
-                ->filter(fn ($group) => $group['subscriptions']->isNotEmpty())->values(),
+            'dashboards' => $defaultFirst($personalDashboards),
+            'teams' => $teams,
+            'folders' => $user->folders()->get()->map($folderGroup($subscriptions))->filter($hasFeeds)->values(),
             'unfiled' => $subscriptions->whereNull('folder_id')->values(),
         ];
     }
@@ -104,6 +143,7 @@ new class extends Component {
 <div>
     @php
         $counts = $this->counts;
+        $defaultDashboardId = auth()->user()->default_dashboard_id;
         $link = fn (string $source) => route('reader', ['s' => $source]);
     @endphp
 
@@ -127,9 +167,50 @@ new class extends Component {
         </flux:sidebar.item>
     </flux:sidebar.nav>
 
+    @if ($this->tree['dashboards']->isNotEmpty())
+        <flux:sidebar.group expandable :heading="__('Dashboards')" class="mt-3 grid" data-test="nav-dashboards">
+            @foreach ($this->tree['dashboards'] as $dashboard)
+                <flux:sidebar.item :icon="$dashboard->id === $defaultDashboardId ? 'star' : 'squares-2x2'" :href="route('dashboards.show', $dashboard)" :current="$current === 'dashboard:'.$dashboard->id"
+                    wire:navigate wire:key="nav-dashboard-{{ $dashboard->id }}" data-test="nav-dashboard">
+                    {{ $dashboard->name }}
+                </flux:sidebar.item>
+            @endforeach
+        </flux:sidebar.group>
+    @endif
+
+    @foreach ($this->tree['teams'] as $group)
+        <flux:sidebar.group expandable :heading="$group['team']->name" class="mt-3 grid" wire:key="nav-team-{{ $group['team']->id }}" data-test="nav-team">
+            @foreach ($group['dashboards'] as $dashboard)
+                <flux:sidebar.item :icon="$dashboard->id === $defaultDashboardId ? 'star' : 'squares-2x2'" :href="route('dashboards.show', $dashboard)" :current="$current === 'dashboard:'.$dashboard->id"
+                    wire:navigate wire:key="nav-dashboard-{{ $dashboard->id }}" data-test="nav-dashboard">
+                    {{ $dashboard->name }}
+                </flux:sidebar.item>
+            @endforeach
+            @foreach ($group['folders'] as $folderGroup)
+                @php($folder = $folderGroup['folder'])
+                <flux:sidebar.item icon="folder" :href="$link('folder:'.$folder->id)" :current="$current === 'folder:'.$folder->id"
+                    :badge="$this->badge($folderGroup['subscriptions']->sum(fn ($s) => $counts[$s->feed_id] ?? 0))" wire:navigate wire:key="nav-folder-{{ $folder->id }}">
+                    {{ $folder->name }}
+                </flux:sidebar.item>
+                @foreach ($folderGroup['subscriptions'] as $subscription)
+                    <flux:sidebar.item class="ps-7" :href="$link('feed:'.$subscription->feed_id)" :current="$current === 'feed:'.$subscription->feed_id"
+                        :badge="$this->badge($counts[$subscription->feed_id] ?? 0)" wire:navigate wire:key="nav-feed-{{ $subscription->id }}">
+                        {{ $subscription->displayTitle() }}
+                    </flux:sidebar.item>
+                @endforeach
+            @endforeach
+            @foreach ($group['unfiled'] as $subscription)
+                <flux:sidebar.item :href="$link('feed:'.$subscription->feed_id)" :current="$current === 'feed:'.$subscription->feed_id"
+                    :badge="$this->badge($counts[$subscription->feed_id] ?? 0)" wire:navigate wire:key="nav-feed-{{ $subscription->id }}">
+                    {{ $subscription->displayTitle() }}
+                </flux:sidebar.item>
+            @endforeach
+        </flux:sidebar.group>
+    @endforeach
+
     @foreach ($this->tree['folders'] as $group)
         @php($folder = $group['folder'])
-        <flux:sidebar.group expandable :heading="$group['heading']" class="mt-3 grid" wire:key="nav-folder-{{ $folder->id }}">
+        <flux:sidebar.group expandable :heading="$folder->name" class="mt-3 grid" wire:key="nav-folder-{{ $folder->id }}">
             <flux:sidebar.item icon="folder" :href="$link('folder:'.$folder->id)" :current="$current === 'folder:'.$folder->id"
                 :badge="$this->badge($group['subscriptions']->sum(fn ($s) => $counts[$s->feed_id] ?? 0))" wire:navigate>
                 {{ __('All in :folder', ['folder' => $folder->name]) }}

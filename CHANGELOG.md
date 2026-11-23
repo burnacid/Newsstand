@@ -6,8 +6,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+
+- **Team dashboards in the sidebar**: each team now has one sidebar group holding its dashboards, then its folders
+  and feeds. Team folders no longer appear as separate "Team · Folder" groups.
+- A new dashboard can be attached to one of your teams straight from the "New dashboard" form.
+- **Personal dashboards in the sidebar**: a "Dashboards" group lists your own dashboards without a team and the ones
+  shared with you directly.
+- **Default dashboard**: star a dashboard to make it your default. The sidebar "Dashboards" link opens it (or the
+  overview when none is set), and it is starred and listed first in the sidebar.
+
+### Changed
+
+- Signing in, and opening the site while signed in, now goes straight to the reader instead of your most recently
+  updated dashboard or the welcome page.
+
 ### Fixed
 
+- Dragging widgets on a dashboard works again. Drag and drop was never set up when you switched to edit mode, so
+  the handles did nothing.
 - CI now runs on PHP 8.4 (matching the production image); the locked Symfony 8.1 packages require PHP >= 8.4.1, which broke `composer install` on PHP 8.3. `composer.json` now requires `php ^8.4`.
 - `TRUSTED_PROXIES` is now read via `config('app.trusted_proxies')` in `AppServiceProvider` instead of `env()` in `bootstrap/app.php`, so it also works when the config is cached from a `.env` file.
 - Horizon prefix no longer breaks when `APP_NAME` is parsed as a boolean.

@@ -18,6 +18,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->append(SecurityHeaders::class);
         $middleware->prependToGroup('web', ResolveSecureSessionCookie::class);
         $middleware->appendToGroup('web', EnsureAccountIsActive::class);
+        // Signed-in users who open a guest page (login, register) land in the reader.
+        $middleware->redirectUsersTo(fn () => route('reader'));
         // Trusted proxies are configured in AppServiceProvider from config('app.trusted_proxies').
     })
     ->withExceptions(function (Exceptions $exceptions): void {
