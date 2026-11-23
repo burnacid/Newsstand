@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Fixed
+
+- CI now runs on PHP 8.4 (matching the production image); the locked Symfony 8.1 packages require PHP >= 8.4.1, which broke `composer install` on PHP 8.3. `composer.json` now requires `php ^8.4`.
+- `TRUSTED_PROXIES` is now read via `config('app.trusted_proxies')` in `AppServiceProvider` instead of `env()` in `bootstrap/app.php`, so it also works when the config is cached from a `.env` file.
+- Horizon prefix no longer breaks when `APP_NAME` is parsed as a boolean.
+- PHPStan runs with a 1G memory limit so `composer test` no longer crashes on the default 128M `memory_limit`.
+
 ## [1.4.0] - 2026-11-23
 
 ### Added

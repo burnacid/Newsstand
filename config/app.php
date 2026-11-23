@@ -118,6 +118,19 @@ return [
     |
     */
 
+    /*
+    |--------------------------------------------------------------------------
+    | Trusted Proxies
+    |--------------------------------------------------------------------------
+    |
+    | Behind a reverse proxy (Caddy, Traefik, nginx, Cloudflare Tunnel...):
+    | set TRUSTED_PROXIES to a comma-separated list of IPs/CIDRs, or "*" when
+    | only the proxy can reach the app. Leave empty to trust no proxies.
+    |
+    */
+
+    'trusted_proxies' => env('TRUSTED_PROXIES'),
+
     'maintenance' => [
         'driver' => env('APP_MAINTENANCE_DRIVER', 'file'),
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
