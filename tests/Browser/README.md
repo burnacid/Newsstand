@@ -18,6 +18,7 @@ node tests/Browser/feeds-page-check.mjs   # delete/rename tag, unsubscribe (need
 node tests/Browser/river-check.mjs        # river marks scrolled-past stories read
 node tests/Browser/teams-check.mjs        # create a team, folder, invite link, team watchlist, a note; deletes it all again
 node tests/Browser/dashboard-sort-check.mjs  # team dashboard in the sidebar, drag widgets to reorder; deletes it all again
+node tests/Browser/team-tags-check.mjs     # team tag from the reader, tag widget on a team dashboard, a team rule; deletes it all again
 ```
 
 They use the installed Microsoft Edge. To use Playwright's own Chromium instead:

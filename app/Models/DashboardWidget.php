@@ -16,8 +16,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  *   top      []                          top stories of the last 48 hours
  *   cves     ['filter' => kev|critical|mentioned]  vulnerabilities in the news
  *   watchlist []                         stories about the owner's watched products
- * All types accept ['limit' => 3..20]. Team dashboards use the team's feeds, folders and
- * watchlist instead of the owner's, and have no tag or starred widgets.
+ * All types accept ['limit' => 3..20]. Team dashboards use the team's feeds, folders, tags and
+ * watchlist instead of the owner's, and have no starred widgets.
  *
  * @property int $id
  * @property int $dashboard_id
@@ -32,8 +32,8 @@ class DashboardWidget extends Model
 {
     public const TYPES = ['feed', 'folder', 'search', 'tag', 'starred', 'top', 'cves', 'watchlist'];
 
-    /** Personal collections; not available on team dashboards. */
-    public const PERSONAL_TYPES = ['tag', 'starred'];
+    /** Personal collections; not available on team dashboards (which use team tags instead). */
+    public const PERSONAL_TYPES = ['starred'];
 
     public const SIZES = ['normal', 'wide', 'full'];
 

@@ -454,7 +454,7 @@ it('fills team dashboards from the team\'s feeds, not the creator\'s', function 
         ->assertSet('openEntryId', $teamRansomware->id);
 });
 
-it('offers no personal tag or starred widgets on team dashboards', function () {
+it('offers no personal tags or starred widgets on team dashboards', function () {
     $dashboard = $this->owner->dashboards()->create(['name' => 'Team board', 'team_id' => $this->team->id]);
     $tag = $this->owner->tags()->create(['name' => 'private']);
 
@@ -462,6 +462,9 @@ it('offers no personal tag or starred widgets on team dashboards', function () {
     Livewire::test('pages::dashboards.show', ['dashboard' => $dashboard])
         ->set('wType', 'tag')
         ->set('wTagId', (string) $tag->id)
+        ->call('saveWidget')
+        ->assertHasErrors('wTagId')
+        ->set('wType', 'starred')
         ->call('saveWidget')
         ->assertHasErrors('wType');
 

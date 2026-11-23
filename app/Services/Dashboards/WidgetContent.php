@@ -18,7 +18,7 @@ use Illuminate\Support\Facades\DB;
  * Resolves what a widget shows. Content is scoped to whoever the dashboard belongs to,
  * so members see it without subscribing:
  *   - personal dashboard: the OWNER's feeds, folders, tags, stars and watchlist;
- *   - team dashboard: the TEAM's feeds, folders and watchlist (no tags or stars).
+ *   - team dashboard: the TEAM's feeds, folders, tags and watchlist (no stars).
  * Read state comes from the VIEWER (null on public links).
  */
 class WidgetContent
@@ -75,7 +75,7 @@ class WidgetContent
 
     /**
      * Whether a story may be opened from this dashboard: it's from one of the dashboard's
-     * feeds, or (personal dashboards) a tag / starred widget includes it.
+     * feeds, or a tag widget (or, on personal dashboards, a starred widget) includes it.
      */
     public function canShow(Dashboard $dashboard, int $entryId): bool
     {
@@ -88,14 +88,10 @@ class WidgetContent
 
         $owner = $this->personalOwner($dashboard);
 
-        if ($owner === null) {
-            return false;
-        }
-
         foreach ($dashboard->widgets as $widget) {
             $visible = match ($widget->type) {
-                'tag' => $this->query->taggedEntryIds($owner, (int) ($widget->config['tag_id'] ?? 0))->where('entry_tag.entry_id', $entryId)->exists(),
-                'starred' => DB::table('entry_user')->where('user_id', $owner->id)->where('entry_id', $entryId)->whereNotNull('starred_at')->exists(),
+                'tag' => (bool) $this->taggedEntryIds($dashboard, (int) ($widget->config['tag_id'] ?? 0))?->where('entry_tag.entry_id', $entryId)->exists(),
+                'starred' => $owner !== null && DB::table('entry_user')->where('user_id', $owner->id)->where('entry_id', $entryId)->whereNotNull('starred_at')->exists(),
                 default => false,
             };
 
@@ -119,6 +115,25 @@ class WidgetContent
 
         // A personal dashboard without an owner can't exist (it's removed with the owner); show nothing.
         return $owner ? $this->query->subscribedFeedIds($owner, $folderId) : DB::table('subscriptions')->select('feed_id')->whereRaw('1 = 0');
+    }
+
+    /**
+     * Stories with a tag (subquery): one of the team's tags on a team dashboard, one of the
+     * owner's own tags on a personal one. Null when the tag doesn't belong there.
+     */
+    private function taggedEntryIds(Dashboard $dashboard, int $tagId): ?QueryBuilder
+    {
+        $tags = DB::table('tags')->select('id')->where('id', $tagId);
+
+        if ($dashboard->isTeamDashboard()) {
+            $tags->where('team_id', $dashboard->team_id);
+        } elseif ($owner = $this->personalOwner($dashboard)) {
+            $tags->where('user_id', $owner->id);
+        } else {
+            return null;
+        }
+
+        return DB::table('entry_tag')->select('entry_tag.entry_id')->whereIn('entry_tag.tag_id', $tags);
     }
 
     private function personalOwner(Dashboard $dashboard): ?User
@@ -157,10 +172,11 @@ class WidgetContent
                 $query->whereIn('entries.feed_id', $feeds)->whereIn('entries.id', $this->watchlistEntryIds($dashboard));
                 break;
             case 'tag':
-                if ($owner === null) {
+                $tagged = $this->taggedEntryIds($dashboard, (int) ($config['tag_id'] ?? 0));
+                if ($tagged === null) {
                     return null;
                 }
-                $query->whereIn('entries.id', $this->query->taggedEntryIds($owner, (int) ($config['tag_id'] ?? 0)));
+                $query->whereIn('entries.id', $tagged);
                 break;
             case 'starred':
                 if ($owner === null) {

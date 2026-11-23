@@ -161,6 +161,21 @@ it('reorders widgets', function () {
     expect($this->dashboard->widgets()->pluck('id')->all())->toBe([$second->id, $this->widget->id]);
 });
 
+it('ignores leftover values of other widget types when saving', function () {
+    $tag = $this->owner->tags()->create(['name' => 'curated']);
+
+    // A stale feed id from before switching "Shows" to a tag must not block saving.
+    Livewire::actingAs($this->owner)->test('pages::dashboards.show', ['dashboard' => $this->dashboard])
+        ->call('newWidget')
+        ->set('wFeedId', '999999')
+        ->set('wType', 'tag')
+        ->set('wTagId', (string) $tag->id)
+        ->call('saveWidget')
+        ->assertHasNoErrors();
+
+    expect($this->dashboard->widgets()->where('type', 'tag')->first()->config)->toBe(['limit' => 8, 'tag_id' => $tag->id]);
+});
+
 it('sizes widgets normal, wide or full width', function () {
     $component = Livewire::actingAs($this->owner)->test('pages::dashboards.show', ['dashboard' => $this->dashboard])
         ->call('editWidget', $this->widget->id)

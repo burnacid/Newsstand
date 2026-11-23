@@ -107,8 +107,8 @@ new #[Title('Dashboard')] class extends Component {
     }
 
     /**
-     * Widget options come from whoever the content belongs to: the team's feeds and folders on a
-     * team dashboard, the owner's feeds, folders and tags on a personal one.
+     * Widget options come from whoever the content belongs to: the team's feeds, folders and tags
+     * on a team dashboard, the owner's feeds, folders and tags on a personal one.
      */
     #[Computed]
     public function options(): array
@@ -120,7 +120,7 @@ new #[Title('Dashboard')] class extends Component {
                 'feeds' => $dashboard->team->subscriptions()->with('feed:id,title,url')->get()
                     ->map(fn ($s) => ['id' => $s->feed_id, 'title' => $s->displayTitle()])->sortBy('title', SORT_NATURAL | SORT_FLAG_CASE)->values(),
                 'folders' => $dashboard->team->folders()->get(['id', 'name']),
-                'tags' => collect(),
+                'tags' => $dashboard->team->tags()->get(['id', 'name']),
             ];
         }
 
@@ -262,10 +262,10 @@ new #[Title('Dashboard')] class extends Component {
             'wSize' => ['required', Rule::in(DashboardWidget::SIZES)],
             'wTitle' => ['nullable', 'string', 'max:100'],
             'wLimit' => ['integer', 'min:3', 'max:20'],
-            'wFeedId' => [Rule::requiredIf($this->wType === 'feed'), 'nullable', Rule::in($o['feeds']->pluck('id')->map(fn ($id) => (string) $id)->all())],
-            'wFolderId' => [Rule::requiredIf($this->wType === 'folder'), 'nullable', Rule::in($o['folders']->pluck('id')->map(fn ($id) => (string) $id)->all())],
-            'wTagId' => [Rule::requiredIf($this->wType === 'tag'), 'nullable', Rule::in($o['tags']->pluck('id')->map(fn ($id) => (string) $id)->all())],
-            'wQuery' => [Rule::requiredIf($this->wType === 'search'), 'nullable', 'string', 'max:200'],
+            'wFeedId' => ['exclude_unless:wType,feed', 'required', Rule::in($o['feeds']->pluck('id')->map(fn ($id) => (string) $id)->all())],
+            'wFolderId' => ['exclude_unless:wType,folder', 'required', Rule::in($o['folders']->pluck('id')->map(fn ($id) => (string) $id)->all())],
+            'wTagId' => ['exclude_unless:wType,tag', 'required', Rule::in($o['tags']->pluck('id')->map(fn ($id) => (string) $id)->all())],
+            'wQuery' => ['exclude_unless:wType,search', 'required', 'string', 'max:200'],
             'wFilter' => ['in:kev,critical,mentioned'],
         ], [], [
             'wFeedId' => __('feed'), 'wFolderId' => __('folder'), 'wTagId' => __('tag'), 'wQuery' => __('search'),
@@ -293,7 +293,7 @@ new #[Title('Dashboard')] class extends Component {
         unset($this->dashboard, $this->contents);
     }
 
-    /** Widget types this dashboard offers: team dashboards have no personal tags or stars. */
+    /** Widget types this dashboard offers: team dashboards have no personal stars. */
     public function widgetTypes(): array
     {
         return $this->dashboard->isTeamDashboard()
@@ -637,8 +637,8 @@ new #[Title('Dashboard')] class extends Component {
                     <flux:select.option value="feed">{{ __('A feed') }}</flux:select.option>
                     <flux:select.option value="folder">{{ __('A folder') }}</flux:select.option>
                     <flux:select.option value="search">{{ __('A saved search') }}</flux:select.option>
+                    <flux:select.option value="tag">{{ $dashboard->isTeamDashboard() ? __('Stories with a team tag') : __('Tagged stories') }}</flux:select.option>
                     @unless ($dashboard->isTeamDashboard())
-                        <flux:select.option value="tag">{{ __('Tagged stories') }}</flux:select.option>
                         <flux:select.option value="starred">{{ __('Starred stories') }}</flux:select.option>
                     @endunless
                     <flux:select.option value="top">{{ __('Top stories') }}</flux:select.option>
@@ -648,31 +648,31 @@ new #[Title('Dashboard')] class extends Component {
 
                 @switch($wType)
                     @case('feed')
-                        <flux:select wire:model="wFeedId" :label="__('Feed')" :placeholder="__('Choose a feed')">
+                        <flux:select wire:key="w-pick-feed" wire:model="wFeedId" :label="__('Feed')" :placeholder="__('Choose a feed')">
                             @foreach ($this->options['feeds'] as $feed)
                                 <flux:select.option :value="$feed['id']">{{ $feed['title'] }}</flux:select.option>
                             @endforeach
                         </flux:select>
                         @break
                     @case('folder')
-                        <flux:select wire:model="wFolderId" :label="__('Folder')" :placeholder="__('Choose a folder')">
+                        <flux:select wire:key="w-pick-folder" wire:model="wFolderId" :label="__('Folder')" :placeholder="__('Choose a folder')">
                             @foreach ($this->options['folders'] as $folder)
                                 <flux:select.option :value="$folder->id">{{ $folder->name }}</flux:select.option>
                             @endforeach
                         </flux:select>
                         @break
                     @case('tag')
-                        <flux:select wire:model="wTagId" :label="__('Tag')" :placeholder="__('Choose a tag')">
+                        <flux:select wire:key="w-pick-tag" wire:model="wTagId" :label="__('Tag')" :placeholder="__('Choose a tag')">
                             @foreach ($this->options['tags'] as $tag)
                                 <flux:select.option :value="$tag->id">#{{ $tag->name }}</flux:select.option>
                             @endforeach
                         </flux:select>
                         @break
                     @case('search')
-                        <flux:input wire:model="wQuery" :label="__('Search for')" placeholder="ransomware" />
+                        <flux:input wire:key="w-pick-query" wire:model="wQuery" :label="__('Search for')" placeholder="ransomware" />
                         @break
                     @case('cves')
-                        <flux:select wire:model="wFilter" :label="__('Which vulnerabilities')">
+                        <flux:select wire:key="w-pick-cves" wire:model="wFilter" :label="__('Which vulnerabilities')">
                             <flux:select.option value="kev">{{ __('Actively exploited (CISA KEV)') }}</flux:select.option>
                             <flux:select.option value="critical">{{ __('Critical (CVSS 9+)') }}</flux:select.option>
                             <flux:select.option value="mentioned">{{ __('All mentioned in the news') }}</flux:select.option>
@@ -680,8 +680,10 @@ new #[Title('Dashboard')] class extends Component {
                         @break
                 @endswitch
 
-                @if ($dashboard->isTeamDashboard() && in_array($wType, ['feed', 'folder', 'search', 'watchlist', 'top', 'cves'], true))
-                    <flux:text size="sm">{{ __('Widgets use the feeds, folders and watchlist of :team.', ['team' => $dashboard->team->name]) }}</flux:text>
+                @if ($dashboard->isTeamDashboard() && $wType === 'tag' && $this->options['tags']->isEmpty())
+                    <flux:text size="sm">{{ __(':team has no tags yet. Team owners and admins create them on the team page.', ['team' => $dashboard->team->name]) }}</flux:text>
+                @elseif ($dashboard->isTeamDashboard() && in_array($wType, ['feed', 'folder', 'search', 'tag', 'watchlist', 'top', 'cves'], true))
+                    <flux:text size="sm">{{ __('Widgets use the feeds, folders, tags and watchlist of :team.', ['team' => $dashboard->team->name]) }}</flux:text>
                 @elseif ($this->role !== 'owner' && in_array($wType, ['feed', 'folder', 'tag', 'starred'], true))
                     <flux:text size="sm">{{ __('Widgets use :name’s feeds, folders and tags.', ['name' => $dashboard->curatorName()]) }}</flux:text>
                 @endif

@@ -1,6 +1,6 @@
 @props([
     'entryId',
-    // All of the user's tags.
+    // The user's own tags, then their teams' (with the team loaded).
     'tags',
     // Tags currently on this entry.
     'selected' => collect(),
@@ -23,14 +23,21 @@
             <flux:menu.separator />
         @endif
 
-        @foreach ($tags as $tag)
-            <flux:menu.item wire:click="toggleTag({{ $tag->id }}, {{ $entryId }})" keep-open
-                :icon="in_array($tag->id, $selectedIds, true) ? 'check' : null" wire:key="tag-menu-{{ $entryId }}-{{ $tag->id }}">
-                <span class="flex items-center gap-2">
-                    <span @class(['size-2 rounded-full', "bg-{$tag->color}-500"])></span>
-                    {{ $tag->name }}
-                </span>
-            </flux:menu.item>
+        @foreach ($tags->groupBy(fn ($tag) => $tag->team?->name ?? '') as $teamName => $group)
+            @if ($teamName !== '')
+                <flux:menu.heading class="flex items-center gap-1.5">
+                    <flux:icon.user-group variant="micro" /> {{ $teamName }}
+                </flux:menu.heading>
+            @endif
+            @foreach ($group as $tag)
+                <flux:menu.item wire:click="toggleTag({{ $tag->id }}, {{ $entryId }})" keep-open
+                    :icon="in_array($tag->id, $selectedIds, true) ? 'check' : null" wire:key="tag-menu-{{ $entryId }}-{{ $tag->id }}">
+                    <span class="flex items-center gap-2">
+                        <span @class(['size-2 rounded-full', "bg-{$tag->color}-500"])></span>
+                        {{ $tag->name }}
+                    </span>
+                </flux:menu.item>
+            @endforeach
         @endforeach
     </flux:menu>
 </flux:dropdown>

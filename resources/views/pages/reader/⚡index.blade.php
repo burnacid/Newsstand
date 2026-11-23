@@ -76,18 +76,19 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
             'later' => __('Read later'),
             'feed' => FeedAccess::subscriptions(Auth::user())->with('feed')->where('feed_id', $source->id)->orderByRaw('user_id is null')->first()?->displayTitle() ?? __('Feed'),
             'folder' => FeedAccess::folders(Auth::user())->find($source->id)?->name ?? __('Folder'),
-            'tag' => '#'.(Auth::user()->tags()->find($source->id)?->name ?? __('Tag')),
+            'tag' => '#'.(FeedAccess::tags(Auth::user())->find($source->id)?->name ?? __('Tag')),
             'top' => __('Top stories'),
             'watchlist' => __('Your watchlist'),
             default => __('All stories'),
         };
     }
 
-    /** All of the user's tags, for the tag picker. */
+    /** The user's own tags, then their teams' shared tags, for the tag picker. */
     #[Computed]
     public function userTags(): Collection
     {
-        return Auth::user()->tags()->get();
+        return FeedAccess::tags(Auth::user())->with('team:id,name')
+            ->orderByRaw('tags.team_id is not null')->orderBy('tags.name')->get();
     }
 
     /** Tags on the listed entries and the open entry: entry_id => tags. */
@@ -382,7 +383,7 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
         $owned = match ($source->type) {
             'feed' => FeedAccess::canRead(Auth::user(), $source->id),
             'folder' => FeedAccess::folders(Auth::user())->whereKey($source->id)->exists(),
-            'tag' => Auth::user()->tags()->whereKey($source->id)->exists(),
+            'tag' => FeedAccess::tags(Auth::user())->whereKey($source->id)->exists(),
             default => true,
         };
 

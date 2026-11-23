@@ -146,10 +146,11 @@ class EntryQuery
 
         return DB::table('entry_tag')
             ->join('tags', 'tags.id', '=', 'entry_tag.tag_id')
-            ->where('tags.user_id', $user->id)
+            ->whereIn('tags.id', FeedAccess::tags($user)->select('tags.id'))
             ->whereIn('entry_tag.entry_id', $entryIds)
+            ->orderByRaw('tags.team_id is not null')
             ->orderBy('tags.name')
-            ->get(['entry_tag.entry_id', 'tags.id', 'tags.name', 'tags.color'])
+            ->get(['entry_tag.entry_id', 'tags.id', 'tags.name', 'tags.color', 'tags.team_id'])
             ->groupBy('entry_id');
     }
 
@@ -251,8 +252,7 @@ class EntryQuery
     {
         return DB::table('entry_tag')
             ->select('entry_tag.entry_id')
-            ->join('tags', 'tags.id', '=', 'entry_tag.tag_id')
-            ->where('tags.user_id', $user->id)
+            ->whereIn('entry_tag.tag_id', FeedAccess::tags($user)->select('tags.id'))
             ->when($tagId !== null, fn (QueryBuilder $q) => $q->where('entry_tag.tag_id', $tagId));
     }
 }

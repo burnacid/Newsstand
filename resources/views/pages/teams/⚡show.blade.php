@@ -2,6 +2,8 @@
 
 use App\Actions\Feeds\Organizer;
 use App\Actions\Feeds\SubscribeToFeed;
+use App\Actions\Reader\TagEntries;
+use App\Models\Tag;
 use App\Models\Folder;
 use App\Models\Subscription;
 use App\Models\Team;
@@ -41,6 +43,9 @@ new #[Title('Team')] class extends Component {
     public string $editTitle = '';
     public string $editFolderId = '';
     public bool $editFullText = false;
+
+    // Team tags
+    public string $newTag = '';
 
     // Settings
     public string $teamName = '';
@@ -239,6 +244,65 @@ new #[Title('Team')] class extends Component {
         $this->dispatch('unread-changed');
     }
 
+    // --- Team tags ---
+
+    /** Shared labels: any member puts them on stories, owners and admins manage them. */
+    #[Computed]
+    public function tags(): Collection
+    {
+        return $this->team->tags()->withCount('entries')->get();
+    }
+
+    public function createTag(TagEntries $tagging): void
+    {
+        $this->authorizeAdmin();
+        $this->validate(['newTag' => ['required', 'string', 'max:50']], [], ['newTag' => __('tag')]);
+
+        $tagging->createForTeam($this->team, $this->newTag);
+
+        $this->reset('newTag');
+        unset($this->tags);
+        $this->dispatch('tags-changed');
+    }
+
+    public function renameTag(int $id, string $name): void
+    {
+        $this->authorizeAdmin();
+
+        $name = trim($name);
+        $tag = $this->team->tags()->findOrFail($id);
+
+        if ($name === '' || mb_strlen($name) > 50 || $this->team->tags()->where('name', $name)->whereKeyNot($id)->exists()) {
+            Flux::toast(variant: 'danger', text: __('Pick another name.'));
+
+            return;
+        }
+
+        $tag->update(['name' => $name]);
+        unset($this->tags);
+        $this->dispatch('tags-changed');
+    }
+
+    public function recolorTag(int $id, string $color): void
+    {
+        $this->authorizeAdmin();
+
+        if (in_array($color, Tag::COLORS, true)) {
+            $this->team->tags()->findOrFail($id)->update(['color' => $color]);
+            unset($this->tags);
+            $this->dispatch('tags-changed');
+        }
+    }
+
+    public function deleteTag(int $id): void
+    {
+        $this->authorizeAdmin();
+        $this->team->tags()->findOrFail($id)->delete();
+
+        unset($this->tags);
+        $this->dispatch('tags-changed');
+    }
+
     public function addFeed(FeedDiscovery $discovery, SubscribeToFeed $subscribe): void
     {
         $this->authorizeAdmin();
@@ -408,6 +472,7 @@ new #[Title('Team')] class extends Component {
             <flux:button icon="eye" :href="route('watchlist', ['team' => $team->id])" wire:navigate>{{ __('Team watchlist') }}</flux:button>
             @if ($this->isAdmin)
                 <flux:button icon="bell" :href="route('alerts.edit', ['team' => $team->id])" wire:navigate>{{ __('Team alerts') }}</flux:button>
+                <flux:button icon="adjustments-horizontal" :href="route('rules', ['team' => $team->id])" wire:navigate data-test="team-rules-link">{{ __('Team rules') }}</flux:button>
             @endif
         </div>
     </div>
@@ -534,6 +599,61 @@ new #[Title('Team')] class extends Component {
             </form>
         </flux:modal>
     @endif
+
+    {{-- Team tags --}}
+    <flux:card class="space-y-4" data-test="team-tags">
+        <div>
+            <flux:heading size="lg">{{ __('Tags') }}</flux:heading>
+            <flux:text class="mt-1">{{ __('Shared labels for stories. Everyone in the team can put them on stories from the reader’s tag menu, and team dashboards can show them.') }}</flux:text>
+        </div>
+
+        @if ($this->isAdmin)
+            <form wire:submit="createTag" class="flex items-start gap-2">
+                <div class="flex-1">
+                    <flux:input size="sm" wire:model="newTag" :placeholder="__('New team tag, e.g. needs-patching')" data-test="team-tag-name" />
+                    <flux:error name="newTag" />
+                </div>
+                <flux:button size="sm" type="submit" icon="tag" data-test="team-tag-add">{{ __('Add tag') }}</flux:button>
+            </form>
+        @endif
+
+        <div class="-mx-2 space-y-0.5">
+            @forelse ($this->tags as $tag)
+                <div class="list-row" wire:key="team-tag-{{ $tag->id }}" x-data="{ renaming: false, name: @js($tag->name) }">
+                    <span class="flex min-w-0 items-center gap-2">
+                        <span @class(['size-2.5 shrink-0 rounded-full', "bg-{$tag->color}-500"])></span>
+                        <a href="{{ route('reader', ['s' => 'tag:'.$tag->id]) }}" wire:navigate class="truncate font-medium hover:underline" x-show="! renaming">#{{ $tag->name }}</a>
+                        @if ($this->isAdmin)
+                            <form x-show="renaming" x-cloak class="flex gap-1" x-on:submit.prevent="$wire.renameTag({{ $tag->id }}, name); renaming = false">
+                                <flux:input size="sm" x-model="name" />
+                                <flux:button size="sm" type="submit">{{ __('Save') }}</flux:button>
+                            </form>
+                        @endif
+                        <span class="shrink-0 text-xs text-zinc-500">{{ trans_choice(':count story|:count stories', $tag->entries_count) }}</span>
+                    </span>
+                    @if ($this->isAdmin)
+                        <span class="flex items-center gap-1">
+                            <flux:dropdown align="end">
+                                <flux:button size="xs" variant="subtle" icon="swatch" :tooltip="__('Color')" />
+                                <flux:menu>
+                                    @foreach (\App\Models\Tag::COLORS as $color)
+                                        <flux:menu.item wire:click="recolorTag({{ $tag->id }}, '{{ $color }}')" :icon="$tag->color === $color ? 'check' : null">
+                                            <span class="flex items-center gap-2"><span @class(['size-2.5 rounded-full', "bg-{$color}-500"])></span>{{ ucfirst($color) }}</span>
+                                        </flux:menu.item>
+                                    @endforeach
+                                </flux:menu>
+                            </flux:dropdown>
+                            <flux:button size="xs" variant="subtle" icon="pencil" x-on:click="renaming = ! renaming" :tooltip="__('Rename')" />
+                            <flux:button size="xs" variant="subtle" icon="trash" wire:click="deleteTag({{ $tag->id }})" data-test="team-tag-delete"
+                                wire:confirm="{{ __('Delete #:tag? It is removed from all stories for everyone in the team.', ['tag' => $tag->name]) }}" :tooltip="__('Delete')" />
+                        </span>
+                    @endif
+                </div>
+            @empty
+                <flux:text class="px-2">{{ $this->isAdmin ? __('No team tags yet.') : __('The team has no tags yet.') }}</flux:text>
+            @endforelse
+        </div>
+    </flux:card>
 
     {{-- Members --}}
     <flux:card class="space-y-5">

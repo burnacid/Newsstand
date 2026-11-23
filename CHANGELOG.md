@@ -18,6 +18,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Widget sizes**: widgets can be normal, wide (two columns) or full width, from the widget editor or the new size
   menu on each widget in edit mode. Replaces the "Double width" checkbox; existing wide widgets stay wide.
 
+- **Team tags**: teams get shared tags. Team owners and admins create, rename, recolor and delete them on the team
+  page; anyone in the team puts them on stories from the reader's tag menu (listed under the team's name). They
+  show under the team in the sidebar and can fill a tag widget on a team dashboard.
+- **Team rules**: team owners and admins pick the team on the Rules page (or use "Team rules" on the team page).
+  Team rules run on the team's shared feeds, use the team's folders and watchlist in conditions, and can add a team
+  tag, highlight a story for everyone in the team, and alert the team's channels. Starring, saving, reading and
+  muting stay personal.
+- Personal rules can add your teams' tags as well as your own.
+
 ### Changed
 
 - Signing in, and opening the site while signed in, now goes straight to the reader instead of your most recently
@@ -35,6 +44,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- Saving a dashboard widget could silently fail after switching "Shows" to another type: a leftover value from the
+  previous type's picker was validated and its error had nowhere to show.
 - Top stories could recurse until PHP ran out of memory when stories were loaded without a reader's state
   (`Entry::highlight()`).
 - Dragging widgets on a dashboard works again. Drag and drop was never set up when you switched to edit mode, so

@@ -4,6 +4,7 @@ use App\Actions\Feeds\Organizer;
 use App\Models\Dashboard;
 use App\Models\Folder;
 use App\Models\Subscription;
+use App\Models\Tag;
 use App\Models\Team;
 use App\Services\Teams\FeedAccess;
 use App\Services\Watchlist\WatchlistMatcher;
@@ -55,7 +56,7 @@ new class extends Component {
     #[On('tags-changed')]
     public function refreshTags(): void
     {
-        unset($this->tags);
+        unset($this->tags, $this->tree);
     }
 
     #[Computed]
@@ -105,6 +106,7 @@ new class extends Component {
             ->sortBy(fn (Dashboard $d) => [$d->id === $user->default_dashboard_id ? 0 : 1, mb_strtolower($d->name)])->values();
 
         $teamDashboards = Dashboard::query()->whereIn('team_id', $teamIds)->get(['id', 'name', 'team_id']);
+        $teamTags = Tag::query()->whereIn('team_id', $teamIds)->withCount('entries')->orderBy('name')->get();
 
         // Personal: your own without a team, and ones shared with you directly (unless listed under one of your teams).
         $personalDashboards = Dashboard::query()
@@ -119,11 +121,13 @@ new class extends Component {
             ->map(fn (Team $team) => [
                 'team' => $team,
                 'dashboards' => $defaultFirst($teamDashboards->where('team_id', $team->id)),
+                'tags' => $teamTags->where('team_id', $team->id)->values(),
                 'folders' => $teamFolders->where('team_id', $team->id)
                     ->map($folderGroup($teamSubscriptions))->filter($hasFeeds)->values(),
                 'unfiled' => $teamSubscriptions->where('team_id', $team->id)->whereNull('folder_id')->values(),
             ])
-            ->filter(fn (array $group) => $group['dashboards']->isNotEmpty() || $group['folders']->isNotEmpty() || $group['unfiled']->isNotEmpty())
+            ->filter(fn (array $group) => $group['dashboards']->isNotEmpty() || $group['tags']->isNotEmpty()
+                || $group['folders']->isNotEmpty() || $group['unfiled']->isNotEmpty())
             ->values();
 
         return [
@@ -203,6 +207,15 @@ new class extends Component {
                 <flux:sidebar.item :href="$link('feed:'.$subscription->feed_id)" :current="$current === 'feed:'.$subscription->feed_id"
                     :badge="$this->badge($counts[$subscription->feed_id] ?? 0)" wire:navigate wire:key="nav-feed-{{ $subscription->id }}">
                     {{ $subscription->displayTitle() }}
+                </flux:sidebar.item>
+            @endforeach
+            @foreach ($group['tags'] as $tag)
+                <flux:sidebar.item :href="$link('tag:'.$tag->id)" :current="$current === 'tag:'.$tag->id"
+                    :badge="$this->badge($tag->entries_count)" wire:navigate wire:key="nav-tag-{{ $tag->id }}" data-test="nav-team-tag">
+                    <span class="flex items-center gap-2">
+                        <span @class(['size-2 shrink-0 rounded-full', "bg-{$tag->color}-500"])></span>
+                        {{ $tag->name }}
+                    </span>
                 </flux:sidebar.item>
             @endforeach
         </flux:sidebar.group>

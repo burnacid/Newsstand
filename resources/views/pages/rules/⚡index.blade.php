@@ -1,7 +1,10 @@
 <?php
 
 use App\Jobs\EvaluateRules;
+use App\Models\AlertChannel;
 use App\Models\Rule;
+use App\Models\Team;
+use App\Models\User;
 use App\Services\Rules\RuleEvaluator;
 use App\Services\Teams\FeedAccess;
 use App\Services\Alerts\AlertDispatcher;
@@ -12,9 +15,14 @@ use Illuminate\Validation\Rule as ValidationRule;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
+use Livewire\Attributes\Url;
 use Livewire\Component;
 
 new #[Title('Rules')] class extends Component {
+    /** '' for your own rules, or the id of a team you own or administer. */
+    #[Url(as: 'team')]
+    public string $teamId = '';
+
     public ?int $editingId = null;
 
     public string $name = '';
@@ -48,17 +56,46 @@ new #[Title('Rules')] class extends Component {
         'big' => ['name' => 'Big stories (3+ sources)', 'conditions' => [['type' => 'sources', 'value' => 3]], 'actions' => ['highlight' => 'amber']],
     ];
 
+    /** Teams whose rules this user may manage (owner or admin). */
     #[Computed]
-    public function rules(): Collection
+    public function managedTeams(): Collection
     {
-        return Auth::user()->rules()->get();
+        return Auth::user()->managedTeams()->get();
+    }
+
+    /** The team whose rules are shown, or null for your own. */
+    #[Computed]
+    public function team(): ?Team
+    {
+        return $this->teamId !== '' ? $this->managedTeams->firstWhere('id', (int) $this->teamId) : null;
+    }
+
+    public function updatedTeamId(): void
+    {
+        unset($this->team, $this->rules, $this->feeds, $this->folders, $this->channels, $this->tags);
+        $this->resetEditor();
+    }
+
+    private function owner(): User|Team
+    {
+        return $this->team ?? Auth::user();
     }
 
     #[Computed]
+    public function rules(): Collection
+    {
+        return $this->owner()->rules()->get();
+    }
+
+    /** Team rules run on the team's shared feeds; yours on every feed you read. */
+    #[Computed]
     public function feeds(): Collection
     {
-        return FeedAccess::subscriptions(Auth::user())->with('feed:id,title,url')->orderByRaw('user_id is null')->get()
-            ->unique('feed_id')
+        $subscriptions = $this->team
+            ? $this->team->subscriptions()->with('feed:id,title,url')->get()
+            : FeedAccess::subscriptions(Auth::user())->with('feed:id,title,url')->orderByRaw('user_id is null')->get();
+
+        return $subscriptions->unique('feed_id')
             ->map(fn ($s) => ['id' => $s->feed_id, 'title' => $s->displayTitle()])
             ->sortBy('title', SORT_NATURAL | SORT_FLAG_CASE)->values();
     }
@@ -66,6 +103,10 @@ new #[Title('Rules')] class extends Component {
     #[Computed]
     public function folders(): Collection
     {
+        if ($this->team) {
+            return $this->team->folders()->get();
+        }
+
         return FeedAccess::folders(Auth::user())->with('team:id,name')->orderByRaw('team_id is not null')->orderBy('name')->get()
             ->each(fn ($folder) => $folder->setAttribute('name', $folder->team ? $folder->team->name.' · '.$folder->name : $folder->name));
     }
@@ -73,15 +114,25 @@ new #[Title('Rules')] class extends Component {
     #[Computed]
     public function channels(): Collection
     {
+        if ($this->team) {
+            return AlertChannel::query()->where('team_id', $this->team->id)->orderBy('name')->get(['id', 'name', 'type', 'enabled', 'team_id']);
+        }
+
         return AlertDispatcher::usableChannels(Auth::user())->with('team:id,name')->orderByRaw('team_id is not null')->orderBy('name')
             ->get(['id', 'name', 'type', 'enabled', 'team_id'])
             ->each(fn ($channel) => $channel->setAttribute('name', $channel->team ? $channel->team->name.' · '.$channel->name : $channel->name));
     }
 
+    /** Team rules use the team's tags; your rules your own tags and your teams' shared ones. */
     #[Computed]
     public function tags(): Collection
     {
-        return Auth::user()->tags()->get();
+        if ($this->team) {
+            return $this->team->tags()->get();
+        }
+
+        return FeedAccess::tags(Auth::user())->with('team:id,name')->orderByRaw('tags.team_id is not null')->orderBy('tags.name')->get()
+            ->each(fn ($tag) => $tag->setAttribute('label', $tag->team ? $tag->team->name.' · #'.$tag->name : '#'.$tag->name));
     }
 
     // --- Editor ---
@@ -127,9 +178,10 @@ new #[Title('Rules')] class extends Component {
     }
 
     /** Reset the value when the condition type changes. */
-    public function updatedConditions(mixed $value, string $key): void
+    public function updatedConditions(mixed $value, ?string $key = null): void
     {
-        if (str_ends_with($key, '.type')) {
+        // The whole list was replaced: nothing to reset.
+        if ($key !== null && str_ends_with($key, '.type')) {
             $index = (int) explode('.', $key)[0];
             $this->conditions[$index]['value'] = match ($value) {
                 'cvss' => 9,
@@ -146,7 +198,7 @@ new #[Title('Rules')] class extends Component {
 
         $rule = $this->editingId
             ? tap($this->findRule($this->editingId))->update($data)
-            : Auth::user()->rules()->create([...$data, 'position' => (int) Auth::user()->rules()->max('position') + 1]);
+            : $this->owner()->rules()->create([...$data, 'position' => (int) $this->owner()->rules()->max('position') + 1]);
 
         $applied = $this->applyToRecent ? $evaluator->applyToRecent($rule) : 0;
 
@@ -168,7 +220,12 @@ new #[Title('Rules')] class extends Component {
             return;
         }
 
-        $rule = Auth::user()->rules()->create([...$template, 'match' => 'all', 'position' => (int) Auth::user()->rules()->max('position') + 1]);
+        if ($this->team) {
+            // Team rules don't star, save, read or mute for everyone.
+            $template['actions'] = array_intersect_key($template['actions'], array_flip(Rule::TEAM_ACTIONS));
+        }
+
+        $rule = $this->owner()->rules()->create([...$template, 'match' => 'all', 'position' => (int) $this->owner()->rules()->max('position') + 1]);
         $applied = $evaluator->applyToRecent($rule);
 
         unset($this->rules);
@@ -200,7 +257,7 @@ new #[Title('Rules')] class extends Component {
             'conditions' => ['required', 'array', 'min:1', 'max:10'],
             'conditions.*.type' => ['required', ValidationRule::in(Rule::CONDITION_TYPES)],
             'highlight' => ['nullable', ValidationRule::in(['', ...Rule::HIGHLIGHTS])],
-            'tagId' => ['nullable', ValidationRule::exists('tags', 'id')->where('user_id', Auth::id())],
+            'tagId' => ['nullable', ValidationRule::in(['', ...$this->tags->pluck('id')->map(fn ($id) => (string) $id)])],
         ], [], ['conditions.*.type' => __('condition')]);
 
         $conditions = [];
@@ -215,9 +272,13 @@ new #[Title('Rules')] class extends Component {
             'later' => $this->later,
             'read' => $this->markRead,
             'mute' => $this->mute,
-            // Only channels this user owns.
+            // Only channels this user (or team) may use.
             'alert' => $this->channels->pluck('id')->intersect(array_map('intval', $this->alertChannels))->values()->all() ?: null,
         ]);
+
+        if ($this->team) {
+            $actions = array_intersect_key($actions, array_flip(Rule::TEAM_ACTIONS));
+        }
 
         if ($actions === []) {
             throw ValidationException::withMessages(['actions' => __('Choose at least one thing for the rule to do.')]);
@@ -248,7 +309,7 @@ new #[Title('Rules')] class extends Component {
 
     private function findRule(int $id): Rule
     {
-        return Auth::user()->rules()->findOrFail($id);
+        return $this->owner()->rules()->findOrFail($id);
     }
 
     private function resetEditor(): void
@@ -274,15 +335,16 @@ new #[Title('Rules')] class extends Component {
             'has_cve' => __('mentions a CVE'),
             'cvss' => __('CVSS ≥ :v', ['v' => $c['value']]),
             'kev' => __('actively exploited'),
-            'watchlist' => __('on my watchlist'),
+            'watchlist' => $rule->isTeamRule() ? __('on the team watchlist') : __('on my watchlist'),
             'sources' => __(':v+ sources', ['v' => $c['value']]),
             default => $c['type'],
         })->implode($rule->match === 'any' ? ' '.__('or').' ' : ' '.__('and').' ');
 
         $tags = $this->tags->pluck('name', 'id');
+        $highlightFor = $rule->isTeamRule() ? ' '.__('for everyone') : '';
         $a = $rule->actions;
         $actions = collect([
-            ! empty($a['highlight']) ? __('highlight :c', ['c' => $a['highlight']]) : null,
+            ! empty($a['highlight']) ? __('highlight :c', ['c' => $a['highlight']]).$highlightFor : null,
             ! empty($a['tag_id']) ? '#'.($tags[$a['tag_id']] ?? '?') : null,
             ! empty($a['star']) ? __('star') : null,
             ! empty($a['later']) ? __('read later') : null,
@@ -301,15 +363,31 @@ new #[Title('Rules')] class extends Component {
             <flux:heading size="xl" level="1">{{ __('Rules') }}</flux:heading>
             <flux:text class="mt-1 max-w-xl">{{ __('Decide what matters. When a new story matches a rule, Newsstand highlights, tags, stars or mutes it for you. Each rule acts on a story once, so undoing an action sticks.') }}</flux:text>
         </div>
-        <flux:button variant="primary" icon="plus" wire:click="create" data-test="new-rule">{{ __('New rule') }}</flux:button>
+        <div class="flex items-center gap-2">
+            @if ($this->managedTeams->isNotEmpty())
+                <flux:select size="sm" class="!w-56" wire:model.live="teamId" data-test="rules-team">
+                    <flux:select.option value="">{{ __('Your rules') }}</flux:select.option>
+                    @foreach ($this->managedTeams as $t)
+                        <flux:select.option value="{{ $t->id }}">{{ __('Team: :name', ['name' => $t->name]) }}</flux:select.option>
+                    @endforeach
+                </flux:select>
+            @endif
+            <flux:button variant="primary" icon="plus" wire:click="create" data-test="new-rule">{{ __('New rule') }}</flux:button>
+        </div>
     </div>
+
+    @if ($this->team)
+        <flux:callout icon="user-group" data-test="team-rules-note">
+            <flux:callout.text>{{ __('Rules of :team run on the team’s shared feeds. They can add a team tag, highlight a story for everyone in the team and alert the team’s channels. Starring, saving, reading and muting stay personal.', ['team' => $this->team->name]) }}</flux:callout.text>
+        </flux:callout>
+    @endif
 
     @if ($this->rules->isEmpty())
         <flux:card class="space-y-4">
             <flux:heading size="lg">{{ __('Start with a security preset') }}</flux:heading>
             <div class="grid gap-3 md:grid-cols-3">
                 @foreach ([
-                    'exploited' => ['fire', __('Actively exploited'), __('Stories about CVEs in CISA’s Known Exploited Vulnerabilities list: highlight red and star.')],
+                    'exploited' => ['fire', __('Actively exploited'), $this->team ? __('Stories about CVEs in CISA’s Known Exploited Vulnerabilities list: highlight red for everyone.') : __('Stories about CVEs in CISA’s Known Exploited Vulnerabilities list: highlight red and star.')],
                     'critical' => ['shield-exclamation', __('Critical CVEs'), __('Stories mentioning a CVE with CVSS 9.0 or higher: highlight orange.')],
                     'big' => ['newspaper', __('Big stories'), __('Stories covered by 3 or more of your feeds: highlight amber.')],
                 ] as $key => [$icon, $title, $text])
@@ -375,7 +453,7 @@ new #[Title('Rules')] class extends Component {
                             <flux:select.option value="cvss">{{ __('CVSS score at least') }}</flux:select.option>
                             <flux:select.option value="kev">{{ __('Actively exploited (KEV)') }}</flux:select.option>
                             <flux:select.option value="sources">{{ __('Covered by at least') }}</flux:select.option>
-                            <flux:select.option value="watchlist">{{ __('Concerns my watchlist') }}</flux:select.option>
+                            <flux:select.option value="watchlist">{{ $this->team ? __('Concerns the team watchlist') : __('Concerns my watchlist') }}</flux:select.option>
                         </flux:select>
 
                         <div class="min-w-0 flex-1">
@@ -423,31 +501,33 @@ new #[Title('Rules')] class extends Component {
             <div class="space-y-3">
                 <flux:text class="font-medium text-zinc-800 dark:text-zinc-200">{{ __('Then:') }}</flux:text>
                 <div class="grid gap-3 sm:grid-cols-2">
-                    <flux:select wire:model="highlight" :label="__('Highlight')" size="sm">
+                    <flux:select wire:model="highlight" :label="$this->team ? __('Highlight for everyone') : __('Highlight')" size="sm">
                         <flux:select.option value="">{{ __('No highlight') }}</flux:select.option>
                         @foreach (\App\Models\Rule::HIGHLIGHTS as $color)
                             <flux:select.option :value="$color">{{ ucfirst($color) }}</flux:select.option>
                         @endforeach
                     </flux:select>
-                    <flux:select wire:model="tagId" :label="__('Add tag')" size="sm">
+                    <flux:select wire:model="tagId" :label="$this->team ? __('Add team tag') : __('Add tag')" size="sm" data-test="rule-tag">
                         <flux:select.option value="">{{ __('No tag') }}</flux:select.option>
                         @foreach ($this->tags as $tag)
-                            <flux:select.option :value="$tag->id">#{{ $tag->name }}</flux:select.option>
+                            <flux:select.option :value="$tag->id">{{ $tag->label ?? '#'.$tag->name }}</flux:select.option>
                         @endforeach
                     </flux:select>
                 </div>
-                <div class="grid gap-2 sm:grid-cols-2">
-                    <flux:checkbox wire:model="star" :label="__('Star it')" />
-                    <flux:checkbox wire:model="later" :label="__('Save for later')" />
-                    <flux:checkbox wire:model="markRead" :label="__('Mark as read')" />
-                    <flux:checkbox wire:model="mute" :label="__('Mute (hide from lists)')" />
-                </div>
+                @unless ($this->team)
+                    <div class="grid gap-2 sm:grid-cols-2">
+                        <flux:checkbox wire:model="star" :label="__('Star it')" />
+                        <flux:checkbox wire:model="later" :label="__('Save for later')" />
+                        <flux:checkbox wire:model="markRead" :label="__('Mark as read')" />
+                        <flux:checkbox wire:model="mute" :label="__('Mute (hide from lists)')" />
+                    </div>
+                @endunless
                 <div class="space-y-2">
                     <flux:text size="sm" class="font-medium text-zinc-700 dark:text-zinc-300">{{ __('Send alert to') }}</flux:text>
                     @forelse ($this->channels as $channel)
                         <flux:checkbox wire:model="alertChannels" :value="(string) $channel->id" :label="$channel->name.' ('.\App\Models\AlertChannel::label($channel->type).')'" data-test="rule-alert-{{ $channel->id }}" />
                     @empty
-                        <flux:text size="sm"><flux:link :href="route('alerts.edit')" wire:navigate>{{ __('Add an alert channel') }}</flux:link> {{ __('to get notified when this rule matches.') }}</flux:text>
+                        <flux:text size="sm"><flux:link :href="route('alerts.edit', $this->team ? ['team' => $this->team->id] : [])" wire:navigate>{{ __('Add an alert channel') }}</flux:link> {{ __('to get notified when this rule matches.') }}</flux:text>
                     @endforelse
                 </div>
                 <flux:error name="actions" />
