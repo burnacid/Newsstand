@@ -6,6 +6,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+
+- **Installable app (PWA)**: a service worker (`/sw.js`) makes Newsstand installable from the browser. The app opens
+  on the reader, has Reader, Dashboards and Security shortcuts, and shows an offline page when there is no
+  connection, reloading by itself once it is back. Pages are never cached on the device (signing out leaves nothing
+  behind); only build assets and brand images are, and each release replaces those caches.
+
+### Changed
+
+- The web app manifest now starts at the reader instead of the dashboards, and has an id, scope and shortcuts.
+
 ## [1.6.0] - 2026-11-23
 
 ### Added

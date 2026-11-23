@@ -1,3 +1,4 @@
+import './pwa';
 import reader from './reader';
 
 document.addEventListener('alpine:init', () => {

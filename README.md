@@ -30,6 +30,9 @@ Built with Laravel 13, Livewire 4 and Flux. Runs on PostgreSQL (recommended), My
   dashboards and notes on stories, with owner / admin / member roles and expiring invite links. Read state stays
   personal.
 - **Daily digest** email, opt-in per user.
+- **Installable app (PWA)**: install Newsstand from the browser on desktop or phone; it opens on the reader, with
+  shortcuts to Dashboards and Security, and shows an offline page without a connection. Pages are never cached on
+  the device, only the app's static files. Needs HTTPS (or `localhost`).
 
 ## Local development
 

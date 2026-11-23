@@ -1,8 +1,18 @@
 <?php
 
 use App\Http\Controllers\OpmlExportController;
+use App\Http\Controllers\PwaController;
+use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
+use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Http\Request;
+use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Route;
+use Illuminate\View\Middleware\ShareErrorsFromSession;
+
+// The service worker that makes Newsstand installable. No session: it is fetched on every visit.
+Route::get('sw.js', [PwaController::class, 'serviceWorker'])
+    ->withoutMiddleware([StartSession::class, ShareErrorsFromSession::class, AddQueuedCookiesToResponse::class, PreventRequestForgery::class])
+    ->name('pwa.service-worker');
 
 // Signed-in visitors go straight to the reader.
 Route::get('/', fn (Request $request) => $request->user() ? redirect()->route('reader') : view('welcome'))->name('home');
