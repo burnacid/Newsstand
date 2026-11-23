@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-11-23
+
 ### Added
 
 - **Installable app (PWA)**: a service worker (`/sw.js`) makes Newsstand installable from the browser. The app opens
@@ -249,7 +251,8 @@ First release.
 - Server-side fetches are protected against SSRF (private and reserved addresses refused, including after redirects).
 - The test suite refuses to run against a non-test database, so tests can never wipe real data.
 
-[Unreleased]: https://github.com/burnacid/Newsstand/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/burnacid/Newsstand/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/burnacid/Newsstand/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/burnacid/Newsstand/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/burnacid/Newsstand/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/burnacid/Newsstand/compare/v1.3.0...v1.4.0
