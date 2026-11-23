@@ -161,6 +161,35 @@ it('reorders widgets', function () {
     expect($this->dashboard->widgets()->pluck('id')->all())->toBe([$second->id, $this->widget->id]);
 });
 
+it('sizes widgets normal, wide or full width', function () {
+    $component = Livewire::actingAs($this->owner)->test('pages::dashboards.show', ['dashboard' => $this->dashboard])
+        ->call('editWidget', $this->widget->id)
+        ->assertSet('wSize', 'normal')
+        ->set('wSize', 'full')
+        ->call('saveWidget')
+        ->assertHasNoErrors();
+
+    expect($this->widget->fresh()->size)->toBe('full');
+    $component->assertSeeHtml('xl:col-span-3');
+
+    $component->call('resizeWidget', $this->widget->id, 'wide');
+    expect($this->widget->fresh()->size)->toBe('wide');
+
+    // Unknown sizes are ignored.
+    $component->call('resizeWidget', $this->widget->id, 'huge');
+    expect($this->widget->fresh()->size)->toBe('wide');
+
+    $component->call('editWidget', $this->widget->id)->set('wSize', 'huge')->call('saveWidget')->assertHasErrors('wSize');
+});
+
+it('does not let viewers resize widgets', function () {
+    Livewire::actingAs($this->viewer)->test('pages::dashboards.show', ['dashboard' => $this->dashboard])
+        ->call('resizeWidget', $this->widget->id, 'full')
+        ->assertForbidden();
+
+    expect($this->widget->fresh()->size)->toBe('normal');
+});
+
 it('re-creates the widget grid with drag and drop when editing starts', function () {
     // wire:sort only initializes on a new element, so the grid's key must change with edit mode.
     Livewire::actingAs($this->owner)->test('pages::dashboards.show', ['dashboard' => $this->dashboard])

@@ -40,6 +40,14 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable, PasskeyAuthenticatable, TwoFactorAuthenticatable;
 
+    protected static function booted(): void
+    {
+        // Personal dashboards go with their owner; team dashboards stay with the team.
+        static::deleting(function (User $user) {
+            Dashboard::query()->where('owner_id', $user->id)->whereNull('team_id')->delete();
+        });
+    }
+
     /**
      * Get the attributes that should be cast.
      *

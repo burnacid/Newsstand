@@ -637,7 +637,7 @@ new #[Title('Team')] class extends Component {
                     wire:confirm="{{ __('Leave :team? You lose access to its feeds, watchlist and notes.', ['team' => $team->name]) }}" data-test="leave-team">{{ __('Leave team') }}</flux:button>
             @else
                 <flux:button variant="danger" icon="trash" wire:click="deleteTeam"
-                    wire:confirm="{{ __('Delete :team? Its shared feeds, watchlist, alert channels and notes are removed for everyone.', ['team' => $team->name]) }}" data-test="delete-team">{{ __('Delete team') }}</flux:button>
+                    wire:confirm="{{ __('Delete :team? Its shared feeds, dashboards, watchlist, alert channels and notes are removed for everyone.', ['team' => $team->name]) }}" data-test="delete-team">{{ __('Delete team') }}</flux:button>
             @endif
         </div>
     </flux:card>

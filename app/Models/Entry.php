@@ -92,7 +92,9 @@ class Entry extends Model
 
     public function highlight(): ?string
     {
-        return $this->getAttribute('highlight');
+        // Read the raw attribute: getAttribute('highlight') on a query that didn't select it would
+        // treat this method as a relationship and call it again, recursing forever.
+        return $this->attributes['highlight'] ?? null;
     }
 
     /** @return BelongsToMany<Tag, $this> */

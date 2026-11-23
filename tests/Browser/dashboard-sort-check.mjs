@@ -72,7 +72,33 @@ check(`order changed after drag (${before.slice(0, 2).join(' / ')} -> ${afterDra
 
 await page.reload();
 await page.waitForLoadState('networkidle');
+const afterDragUrl = page.url();
 check('new order is saved', JSON.stringify(await titles()) === JSON.stringify(afterDrag));
+
+// Team ownership is shown, and the team's admin manages it.
+check('dashboard labelled as a team dashboard', (await page.locator('[data-test=dashboard-team-label]').innerText()).includes('PW board team'));
+
+// Widget sizes: make the first widget full width from its size menu.
+await page.locator('[data-test=toggle-editing]').click();
+await page.waitForTimeout(800);
+const first = page.locator('section[wire\\:sort\\:item]').first();
+await first.locator('[data-test=widget-size]').click();
+await page.locator('[data-test=widget-size-full]:visible').click();
+await page.waitForTimeout(1200);
+const grid = await page.locator('section[wire\\:sort\\:item]').first().evaluate((el) => ({
+    width: el.getBoundingClientRect().width,
+    gridWidth: el.parentElement.getBoundingClientRect().width,
+}));
+check(`full-width widget spans the row (${Math.round(grid.width)} of ${Math.round(grid.gridWidth)}px)`, grid.width > grid.gridWidth * 0.95);
+await page.locator('[data-test=toggle-editing]').click();
+await page.waitForTimeout(500);
+
+// The overview lists it under Team dashboards.
+await page.goto(`${base}/dashboards`);
+await page.waitForLoadState('networkidle');
+check('overview lists it under Team dashboards', (await page.locator('[data-test=team-dashboards]', { hasText: 'PW team board' }).count()) === 1);
+await page.goto(afterDragUrl);
+await page.waitForLoadState('networkidle');
 
 // Default dashboard: the star sets it, the sidebar Dashboards link opens it.
 const boardUrl = page.url();
