@@ -66,9 +66,15 @@ class FeedRefresher
     }
 
     /**
-     * Poll roughly twice per average gap between the most recent posts.
+     * Poll roughly twice per typical gap between the most recent posts.
      * Based on the actual spacing (not a fixed window), because busy feeds
      * often only carry their last ~15 items.
+     *
+     * "Typical" is the median, not the mean: a feed that only posts during
+     * office hours has a few long night/weekend gaps that would otherwise
+     * drag its daytime polling down (badly so on Monday mornings).
+     * Posts less than a minute apart count as one (feeds often publish in
+     * batches with one timestamp), or those zero gaps would win the median.
      */
     private function interval(Feed $feed): int
     {
@@ -81,13 +87,15 @@ class FeedRefresher
             ->limit(20)
             ->pluck('published_at');
 
-        if ($dates->count() < 2) {
+        $gaps = $dates->sliding(2)
+            ->map(fn ($pair) => $pair->last()->diffInMinutes($pair->first(), true))
+            ->filter(fn (float $gap) => $gap >= 1);
+
+        if ($gaps->isEmpty()) {
             return $max;
         }
 
-        $averageGap = $dates->last()->diffInMinutes($dates->first(), true) / ($dates->count() - 1);
-
-        return (int) max($min, min($max, round($averageGap / 2)));
+        return (int) max($min, min($max, round($gaps->median() / 2)));
     }
 
     private function backoff(Feed $feed): int

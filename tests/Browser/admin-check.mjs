@@ -19,7 +19,9 @@ await page.fill('input[name=password]', 'playwright-pass');
 await page.locator('button[type=submit]').first().click();
 await page.waitForURL(/\/(reader|dashboards)/, { timeout: 15000 });
 
-check('admin link in sidebar', (await page.locator('[data-test=admin-link]').count()) === 1);
+await page.locator('[data-test=sidebar-menu-button]').click();
+check('admin link in user menu', await page.locator('[data-test=admin-link]:visible').count() === 1);
+await page.keyboard.press('Escape');
 
 // Users: create, then disable.
 const email = `pw-${Date.now()}@example.test`;
