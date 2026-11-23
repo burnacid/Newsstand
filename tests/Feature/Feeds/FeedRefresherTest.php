@@ -84,6 +84,42 @@ it('polls busy feeds often and quiet feeds rarely', function () {
     expect($this->feed->fresh()->fetch_interval)->toBe(360);
 });
 
+it('ignores night and weekend gaps for feeds that post during office hours', function () {
+    Http::fake(['*' => Http::response('', 304)]);
+    $this->travelTo(now()->next('Monday')->setTime(10, 0));
+
+    // Every 48 minutes from 9:00 to 17:00 (11 posts a day) on Thursday, Friday and Monday morning.
+    $times = collect(['Thursday', 'Friday'])
+        ->flatMap(fn ($day) => collect(range(0, 10))->map(fn ($i) => now()->previous($day)->setTime(9, 0)->addMinutes(48 * $i)))
+        ->push(now()->setTime(9, 0), now()->setTime(9, 48));
+
+    foreach ($times as $i => $at) {
+        $this->feed->entries()->create(['guid' => "office-{$i}", 'guid_hash' => sha1("office-{$i}"), 'published_at' => $at]);
+    }
+
+    refreshFeed($this->feed);
+
+    // Half the real 48-minute rhythm; the average (weekend included) gave 148.
+    expect($this->feed->fresh()->fetch_interval)->toBe(24);
+});
+
+it('treats a batch of posts with one timestamp as a single post', function () {
+    Http::fake(['*' => Http::response('', 304)]);
+
+    // A daily digest: 5 items at once, for 4 days -> poll at half a day (capped at 6 hours), not every 15 minutes.
+    foreach (range(0, 3) as $day) {
+        foreach (range(0, 4) as $item) {
+            $this->feed->entries()->create([
+                'guid' => "d{$day}-{$item}", 'guid_hash' => sha1("d{$day}-{$item}"), 'published_at' => now()->subDays($day)->startOfMinute(),
+            ]);
+        }
+    }
+
+    refreshFeed($this->feed);
+
+    expect($this->feed->fresh()->fetch_interval)->toBe(360);
+});
+
 it('records errors and backs off', function () {
     Http::fake(['*' => Http::response('nope', 500)]);
 

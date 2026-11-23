@@ -6,6 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+
+- **New stories without reloading**: the reader checks for new stories once a minute and shows a "N new stories"
+  button at the top of the list. Clicking it loads them; the list never shifts on its own while you read. Only
+  counts stories in the current view (feed, folder, filters), skips checks while the tab is in the background, and
+  updates the sidebar unread counts. Not available for Top stories.
+
+### Changed
+
+- **Smarter refresh interval** for feeds that only post during office hours. The interval is now based on the
+  typical (median) gap between recent posts instead of the average, so night and weekend gaps no longer slow down
+  daytime refreshes (most noticeable on Monday mornings). Posts published within a minute of each other count as
+  one, so feeds that publish in batches aren't polled every 15 minutes.
+
 ## [1.4.0] - 2026-11-23
 
 ### Added
