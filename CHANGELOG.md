@@ -13,6 +13,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Horizon prefix no longer breaks when `APP_NAME` is parsed as a boolean.
 - PHPStan runs with a 1G memory limit so `composer test` no longer crashes on the default 128M `memory_limit`.
 
+## [1.5.0] - 2026-11-23
+
+### Added
+
+- **New stories without reloading**: the reader checks for new stories once a minute and shows a "N new stories"
+  button at the top of the list. Clicking it loads them; the list never shifts on its own while you read. Only
+  counts stories in the current view (feed, folder, filters), skips checks while the tab is in the background, and
+  updates the sidebar unread counts. Not available for Top stories.
+- **Manage shared feeds** on the team page: team owners and admins can now refresh a team feed right away and edit
+  it (custom title, move to another team folder, full-text extraction), like personal feeds on Manage feeds. Each
+  shared feed also shows when it was last fetched and its errors.
+
+### Changed
+
+- **Tidier sidebar**: Watchlist, Rules, Teams, Manage feeds and Administration moved to the user menu (your name at
+  the bottom of the sidebar, or the avatar top right on mobile). The sidebar keeps your feeds, Dashboards and
+  Vulnerabilities.
+- **Smarter refresh interval** for feeds that only post during office hours. The interval is now based on the
+  typical (median) gap between recent posts instead of the average, so night and weekend gaps no longer slow down
+  daytime refreshes (most noticeable on Monday mornings). Posts published within a minute of each other count as
+  one, so feeds that publish in batches aren't polled every 15 minutes.
+
 ## [1.4.0] - 2026-11-23
 
 ### Added
@@ -155,7 +177,8 @@ First release.
 - Server-side fetches are protected against SSRF (private and reserved addresses refused, including after redirects).
 - The test suite refuses to run against a non-test database, so tests can never wipe real data.
 
-[Unreleased]: https://github.com/burnacid/Newsstand/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/burnacid/Newsstand/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/burnacid/Newsstand/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/burnacid/Newsstand/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/burnacid/Newsstand/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/burnacid/Newsstand/compare/v1.1.0...v1.2.0

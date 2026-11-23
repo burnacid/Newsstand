@@ -20,6 +20,7 @@ use App\Services\Teams\FeedAccess;
 use App\Services\Teams\TeamManager;
 use App\Services\Watchlist\WatchlistMatcher;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Livewire\Livewire;
 
@@ -175,6 +176,60 @@ it('adds feeds to team folders only for team admins', function () {
     $subscription = $subscribe->handle($this->owner, 'https://example.com/feed', $folder);
     expect($subscription->team_id)->toBe($this->team->id)
         ->and($subscription->user_id)->toBeNull();
+});
+
+// --- Managing shared feeds ---
+
+it('lets team admins refresh and edit shared feeds', function () {
+    Http::fake(['*' => Http::response('', 304)]);
+    $this->actingAs($this->owner);
+    $subscription = $this->team->subscriptions()->first();
+    $other = $this->team->folders()->create(['name' => 'Vendors', 'position' => 1]);
+
+    Livewire::test('pages::teams.show', ['team' => $this->team])
+        ->call('refreshFeed', $subscription->id)
+        ->assertHasNoErrors()
+        ->call('editFeed', $subscription->id)
+        ->assertSet('editFolderId', (string) $subscription->folder_id)
+        ->set('editTitle', 'Our intel')
+        ->set('editFolderId', (string) $other->id)
+        ->set('editFullText', true)
+        ->call('saveFeed')
+        ->assertHasNoErrors()
+        ->assertSee('Our intel');
+
+    $subscription->refresh();
+    expect($this->feed->fresh()->last_fetched_at)->not->toBeNull()
+        ->and($subscription->custom_title)->toBe('Our intel')
+        ->and($subscription->folder_id)->toBe($other->id)
+        ->and($this->feed->fresh()->full_text)->toBeTrue();
+});
+
+it('keeps shared feeds in a team folder and away from members and other teams', function () {
+    $subscription = $this->team->subscriptions()->first();
+    $personal = $this->owner->folders()->create(['name' => 'Mine']);
+
+    $this->actingAs($this->owner);
+    Livewire::test('pages::teams.show', ['team' => $this->team])
+        ->call('editFeed', $subscription->id)
+        ->set('editFolderId', (string) $personal->id)
+        ->call('saveFeed')
+        ->assertHasErrors('editFolderId');
+
+    // A feed of another team can't be reached through this team's page.
+    $otherTeam = teamWithFeed($this->owner, Feed::factory()->create(), 'Red team');
+    Livewire::test('pages::teams.show', ['team' => $this->team])
+        ->call('refreshFeed', $otherTeam->subscriptions()->first()->id)
+        ->assertNotFound();
+
+    $this->actingAs($this->member);
+    Livewire::test('pages::teams.show', ['team' => $this->team])
+        ->assertDontSeeHtml('data-test="team-sub-menu"')
+        ->call('refreshFeed', $subscription->id)
+        ->assertForbidden();
+    Livewire::test('pages::teams.show', ['team' => $this->team])
+        ->call('editFeed', $subscription->id)
+        ->assertForbidden();
 });
 
 // --- Rules, watchlist and alerts ---

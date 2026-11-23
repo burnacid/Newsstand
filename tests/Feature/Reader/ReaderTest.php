@@ -4,6 +4,7 @@ use App\Models\Entry;
 use App\Models\Feed;
 use App\Models\User;
 use App\Services\Reader\EntryQuery;
+use App\Services\Reader\EntryStates;
 use App\Services\Reader\ReaderSource;
 use App\Support\FeedTitle;
 use Livewire\Livewire;
@@ -72,6 +73,32 @@ it('falls back to all stories for feeds and folders you do not own', function ()
     Livewire::withQueryParams(['s' => 'folder:'.$foreignFolder->id])
         ->test('pages::reader.index')
         ->assertSet('source', 'all');
+});
+
+it('counts stories that arrive after the list loaded and pulls them in on request', function () {
+    $reader = Livewire::withQueryParams(['s' => 'folder:'.$this->folder->id])->test('pages::reader.index');
+
+    expect($reader->instance()->countNew())->toBe(0);
+
+    makeEntry($this->security, 'Fresh breach');
+    makeEntry($this->tech, 'Outside this folder');
+    makeEntry($this->other, 'Not subscribed either');
+
+    expect($reader->instance()->countNew())->toBe(1);
+    $reader->assertDontSee('Fresh breach');
+
+    $reader->call('showNew')->assertSee('Fresh breach')->assertDispatched('unread-changed');
+    expect($reader->instance()->countNew())->toBe(0);
+});
+
+it('does not count new stories that are already read in unread mode', function () {
+    $reader = Livewire::test('pages::reader.index');
+
+    $entry = makeEntry($this->tech, 'Read elsewhere');
+    app(EntryStates::class)->markRead($this->user, [$entry->id]);
+
+    expect($reader->instance()->countNew())->toBe(0)
+        ->and($reader->set('show', 'all')->instance()->countNew())->toBe(0); // switching filters reloads, so nothing is "new"
 });
 
 it('marks an entry read when opened but keeps it in the list', function () {

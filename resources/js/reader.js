@@ -1,5 +1,6 @@
 /**
- * Reader page behaviour: keyboard navigation and (in the river) mark-as-read on scroll.
+ * Reader page behaviour: keyboard navigation, (in the river) mark-as-read on scroll,
+ * and a once-a-minute check for new stories.
  * Entry rows carry data-entry-id / data-url, river articles data-river-id / data-url;
  * the Livewire component owns all state.
  */
@@ -7,17 +8,55 @@ export default () => ({
     pending: new Set(),
     flushTimer: null,
 
+    /** Stories that arrived since the list was loaded (shown as a "N new stories" bar). */
+    newCount: 0,
+    pollTimer: null,
+
     init() {
         // Don't lose a pending batch when navigating away.
         this.onLeave = () => this.flushSeen();
         document.addEventListener('livewire:navigating', this.onLeave);
         window.addEventListener('pagehide', this.onLeave);
+
+        // Check for new stories every minute while the tab is visible, and right away when it comes back.
+        this.pollTimer = setInterval(() => this.checkNew(), 60_000);
+        this.onVisible = () => { if (!document.hidden) this.checkNew(); };
+        document.addEventListener('visibilitychange', this.onVisible);
     },
 
     destroy() {
         this.flushSeen();
+        clearInterval(this.pollTimer);
         document.removeEventListener('livewire:navigating', this.onLeave);
         window.removeEventListener('pagehide', this.onLeave);
+        document.removeEventListener('visibilitychange', this.onVisible);
+    },
+
+    // --- New stories ---
+
+    async checkNew() {
+        if (document.hidden || this.checking) return;
+
+        this.checking = true;
+
+        try {
+            const count = await this.$wire.countNew();
+
+            // Sidebar unread counts follow along.
+            if (count > this.newCount) window.Livewire.dispatch('unread-changed');
+
+            this.newCount = count;
+        } catch {
+            // Offline or session gone: try again next minute.
+        } finally {
+            this.checking = false;
+        }
+    },
+
+    async showNew() {
+        this.newCount = 0;
+        await this.$wire.showNew();
+        this.$refs.list.scrollTo({ top: 0, behavior: 'smooth' });
     },
 
     isRiver() {

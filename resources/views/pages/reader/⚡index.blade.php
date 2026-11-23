@@ -14,6 +14,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\Renderless;
 use Livewire\Attributes\Session;
 use Livewire\Attributes\Title;
@@ -42,6 +43,10 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
 
     public int $limit = 0;
 
+    /** Highest entry id when the list was last loaded; anything above it is "new". */
+    #[Locked]
+    public int $newestId = 0;
+
     /** Entries read during this visit stay in the unread list until you leave. */
     public array $keep = [];
 
@@ -52,6 +57,7 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
     {
         $this->limit = config('newsstand.reader_page_size');
         $this->source = $this->parsedSource()->key();
+        $this->newestId = (int) Entry::max('id');
 
         if ($this->entryId && ! $this->entry) {
             $this->entryId = null;
@@ -325,11 +331,39 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
         $this->dispatch('unread-changed');
     }
 
+    /**
+     * Polled by the page: how many stories arrived in this view since it was loaded.
+     * Renderless, so polling never re-renders (or reshuffles) the list.
+     */
+    #[Renderless]
+    public function countNew(): int
+    {
+        if ($this->isTop()) {
+            return 0;
+        }
+
+        return $this->query()
+            ->where('entries.id', '>', $this->newestId)
+            ->reorder()
+            ->limit(100)
+            ->pluck('entries.id')
+            ->count();
+    }
+
+    /** Pull the new stories into the list. */
+    public function showNew(): void
+    {
+        $this->newestId = (int) Entry::max('id');
+        unset($this->entries, $this->signals, $this->entryTags);
+        $this->dispatch('unread-changed');
+    }
+
     public function updated(string $property): void
     {
         if (in_array($property, ['show', 'search', 'period'], true)) {
             $this->limit = config('newsstand.reader_page_size');
             $this->keep = [];
+            $this->newestId = (int) Entry::max('id');
         }
     }
 
@@ -444,6 +478,11 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
         </header>
 
         <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain" x-ref="list" data-scroll-area x-on:scroll.passive="riverScroll()">
+            <div x-show="newCount > 0" x-cloak wire:ignore class="sticky top-0 z-10 flex justify-center px-4 py-2">
+                <flux:button size="sm" variant="primary" icon="arrow-up" x-on:click="showNew()" data-test="show-new">
+                    <span x-text="newCount >= 100 ? @js(__('99+ new stories')) : (newCount === 1 ? @js(__('1 new story')) : @js(__(':count new stories')).replace(':count', newCount))"></span>
+                </flux:button>
+            </div>
             @if ($layout === 'river' && $this->entries->isNotEmpty())
                 {{-- River: story previews; each is marked read once its top scrolls past the top of the list. --}}
                 @foreach ($this->entries->take($this->limit) as $item)
