@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Alerts\Senders\PushSender;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -28,7 +29,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 #[Hidden(['config'])]
 class AlertChannel extends Model
 {
-    public const TYPES = ['email', 'ntfy', 'gotify', 'slack', 'teams', 'discord'];
+    public const TYPES = ['push', 'email', 'ntfy', 'gotify', 'slack', 'teams', 'discord'];
 
     /** Automatic triggers a channel can subscribe to (rules pick channels themselves). */
     public const EVENTS = ['watchlist', 'kev'];
@@ -72,6 +73,7 @@ class AlertChannel extends Model
     public static function label(string $type): string
     {
         return match ($type) {
+            'push' => 'Push notification',
             'email' => 'Email',
             'ntfy' => 'ntfy',
             'gotify' => 'Gotify',
@@ -88,6 +90,8 @@ class AlertChannel extends Model
         $c = $this->config;
 
         return match ($this->type) {
+            'push' => trans_choice('{0} No devices yet|{1} :count device|[2,*] :count devices', $count = PushSender::devices($this)->count(), ['count' => $count])
+                .($this->team_id ? ' '.__('in the team') : ''),
             'email' => (string) ($c['address'] ?? ''),
             'ntfy' => rtrim((string) ($c['server'] ?? 'https://ntfy.sh'), '/').'/'.($c['topic'] ?? ''),
             'gotify' => (string) ($c['url'] ?? ''),

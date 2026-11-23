@@ -634,7 +634,7 @@ new #[Title('Team')] class extends Component {
                     @if ($this->isAdmin)
                         <span class="flex items-center gap-1">
                             <flux:dropdown align="end">
-                                <flux:button size="xs" variant="subtle" icon="swatch" :tooltip="__('Color')" />
+                                <flux:button size="xs" variant="subtle" icon="swatch" :aria-label="__('Color')" :title="__('Color')" />
                                 <flux:menu>
                                     @foreach (\App\Models\Tag::COLORS as $color)
                                         <flux:menu.item wire:click="recolorTag({{ $tag->id }}, '{{ $color }}')" :icon="$tag->color === $color ? 'check' : null">

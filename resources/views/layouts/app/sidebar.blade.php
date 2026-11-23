@@ -66,6 +66,8 @@
 
         {{ $slot }}
 
+        <x-pwa-update />
+
         @persist('toast')
             <flux:toast.group>
                 <flux:toast />

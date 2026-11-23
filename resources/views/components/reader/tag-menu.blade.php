@@ -9,8 +9,10 @@
 
 @php($selectedIds = collect($selected)->pluck('id')->all())
 
+{{-- Dropdown triggers use a native title, not a Flux tooltip: the tooltip pops up as focus returns to the button
+     while the menu closes, and Flux then throws "Invalid to show a popover during another show operation". --}}
 <flux:dropdown position="bottom" align="end">
-    <flux:button :size="$size" variant="ghost" icon="tag" :tooltip="__('Tags') . ' (t)'" data-tag-menu />
+    <flux:button :size="$size" variant="ghost" icon="tag" :aria-label="__('Tags')" :title="__('Tags') . ' (t)'" data-tag-menu />
 
     <flux:menu class="min-w-56">
         <div class="p-1" x-data="{ name: '' }">

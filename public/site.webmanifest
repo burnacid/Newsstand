@@ -1,14 +1,41 @@
 {
+    "id": "/",
     "name": "Newsstand",
     "short_name": "Newsstand",
     "description": "The tech and security news you follow, in one calm place.",
-    "start_url": "/dashboard",
+    "lang": "en",
+    "start_url": "/reader",
+    "scope": "/",
     "display": "standalone",
+    "orientation": "any",
     "background_color": "#fdfcf9",
     "theme_color": "#047857",
+    "categories": ["news", "productivity"],
+    "share_target": {
+        "action": "/share",
+        "method": "GET",
+        "params": { "title": "title", "text": "text", "url": "url" }
+    },
     "icons": [
-        { "src": "/brand/icon-192.png", "sizes": "192x192", "type": "image/png" },
-        { "src": "/brand/icon-512.png", "sizes": "512x512", "type": "image/png" },
+        { "src": "/brand/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+        { "src": "/brand/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
         { "src": "/brand/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    ],
+    "shortcuts": [
+        {
+            "name": "Reader",
+            "url": "/reader",
+            "icons": [{ "src": "/brand/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+        },
+        {
+            "name": "Dashboards",
+            "url": "/dashboard",
+            "icons": [{ "src": "/brand/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+        },
+        {
+            "name": "Security",
+            "url": "/security",
+            "icons": [{ "src": "/brand/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+        }
     ]
 }

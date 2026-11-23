@@ -3,10 +3,12 @@
 use App\Exceptions\UnsafeUrlException;
 use App\Models\Alert;
 use App\Models\AlertChannel;
+use App\Models\PushSubscription;
 use App\Models\Team;
 use App\Models\User;
 use App\Services\Alerts\AlertDispatcher;
 use App\Services\Alerts\AlertMessage;
+use App\Services\Alerts\PushService;
 use App\Services\Alerts\Senders\WebhookSender;
 use App\Support\UrlGuard;
 use Flux\Flux;
@@ -80,10 +82,82 @@ new #[Title('Alerts')] class extends Component {
             ->get();
     }
 
+    // --- Push notifications on this user's devices ---
+
+    /** The key browsers subscribe with; null when this server can't send push. */
+    #[Computed]
+    public function pushKey(): ?string
+    {
+        return app(PushService::class)->publicKey();
+    }
+
+    #[Computed]
+    public function devices(): Collection
+    {
+        return Auth::user()->pushSubscriptions()->get();
+    }
+
+    /** Turn push on for the browser making this request. Returns its endpoint hash. */
+    public function registerDevice(string $endpoint, string $publicKey, string $authToken): ?string
+    {
+        $validator = Validator::make(compact('endpoint', 'publicKey', 'authToken'), [
+            'endpoint' => ['required', 'string', 'max:2000', 'url:https'],
+            'publicKey' => ['required', 'string', 'max:255', 'regex:/^[A-Za-z0-9_-]+=*$/'],
+            'authToken' => ['required', 'string', 'max:255', 'regex:/^[A-Za-z0-9_-]+=*$/'],
+        ]);
+
+        try {
+            $validator->validate();
+            PushService::assertSafeEndpoint($endpoint);
+        } catch (\Throwable) {
+            Flux::toast(variant: 'danger', text: __('This browser sent a push address Newsstand cannot use.'));
+
+            return null;
+        }
+
+        $hash = PushSubscription::hashEndpoint($endpoint);
+
+        // One browser has one subscription: if someone else signed in on it before, it moves to this user.
+        PushSubscription::query()->firstOrNew(['endpoint_hash' => $hash])->forceFill([
+            'user_id' => Auth::id(),
+            'endpoint' => $endpoint,
+            'public_key' => $publicKey,
+            'auth_token' => $authToken,
+            'label' => PushSubscription::labelFor(request()->userAgent()),
+        ])->save();
+
+        unset($this->devices, $this->channels);
+        Flux::toast(variant: 'success', text: $this->channels->contains('type', 'push')
+            ? __('Push notifications are on for this device.')
+            : __('Push notifications are on for this device. Add a “Push notification” channel to choose what to get.'));
+
+        return $hash;
+    }
+
+    /** Whether the server still has this browser; returns its endpoint hash. */
+    public function knowsDevice(string $endpoint): ?string
+    {
+        $hash = PushSubscription::hashEndpoint($endpoint);
+
+        return Auth::user()->pushSubscriptions()->where('endpoint_hash', $hash)->exists() ? $hash : null;
+    }
+
+    public function forgetDevice(string $endpoint): void
+    {
+        Auth::user()->pushSubscriptions()->where('endpoint_hash', PushSubscription::hashEndpoint($endpoint))->delete();
+        unset($this->devices, $this->channels);
+    }
+
+    public function removeDevice(int $id): void
+    {
+        Auth::user()->pushSubscriptions()->whereKey($id)->delete();
+        unset($this->devices, $this->channels);
+    }
+
     public function create(): void
     {
         $this->reset('editingId', 'name', 'fields');
-        $this->type = 'ntfy';
+        $this->type = $this->pushKey ? 'push' : 'ntfy';
         $this->events = ['watchlist', 'kev'];
         $this->applyDefaults();
         $this->resetErrorBag();
@@ -202,6 +276,7 @@ new #[Title('Alerts')] class extends Component {
     private function applyDefaults(): void
     {
         $this->fields = match ($this->type) {
+            'push' => [],
             'email' => ['address' => Auth::user()->email],
             'ntfy' => ['server' => 'https://ntfy.sh', 'topic' => 'newsstand-'.Str::lower(Str::random(12)), 'token' => ''],
             'gotify' => ['url' => '', 'token' => ''],
@@ -234,6 +309,47 @@ new #[Title('Alerts')] class extends Component {
             </div>
             @if ($this->team)
                 <flux:text class="text-sm">{{ __('Channels of :team receive alerts for the team watchlist. Team owners and admins can also use them in their rules.', ['team' => $this->team->name]) }}</flux:text>
+            @else
+                {{-- Push on this browser. The device list itself comes from the server; the button needs the browser. --}}
+                <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700" data-test="push-devices"
+                    x-data="pushDevice(@js($this->pushKey))">
+                    <div class="flex flex-wrap items-start gap-3">
+                        <flux:icon.device-phone-mobile class="mt-0.5 text-zinc-500" />
+                        <div class="min-w-0 flex-1">
+                            <div class="font-medium">{{ __('Push notifications on this device') }}</div>
+                            @if (! $this->pushKey)
+                                <flux:text size="sm" data-test="push-unavailable">{{ __('Not available on this server: PHP’s OpenSSL cannot create the keys push needs. On Windows, set OPENSSL_CONF to PHP’s extras/ssl/openssl.cnf.') }}</flux:text>
+                            @else
+                                <flux:text size="sm" x-show="!supported">{{ __('This browser can’t receive push notifications here. They need HTTPS, and on iPhone and iPad Newsstand must be added to the Home Screen first.') }}</flux:text>
+                                <flux:text size="sm" x-show="supported && denied" x-cloak>{{ __('Notifications are blocked for this site in your browser settings.') }}</flux:text>
+                                <flux:text size="sm" x-show="supported && !denied" x-cloak>{{ __('Alerts sent to a “Push notification” channel pop up on every device you turn this on for.') }}</flux:text>
+                                <div class="mt-1 text-xs text-red-600 dark:text-red-400" x-show="error" x-text="error" x-cloak></div>
+                            @endif
+                        </div>
+                        @if ($this->pushKey)
+                            <div x-show="supported && !denied" x-cloak>
+                                <flux:button size="sm" variant="primary" icon="bell" x-show="!enabled" x-on:click="enable()" x-bind:disabled="busy" data-test="push-enable">{{ __('Turn on') }}</flux:button>
+                                <flux:button size="sm" icon="bell-slash" x-show="enabled" x-on:click="disable()" x-bind:disabled="busy" data-test="push-disable">{{ __('Turn off') }}</flux:button>
+                            </div>
+                        @endif
+                    </div>
+
+                    @if ($this->devices->isNotEmpty())
+                        <div class="mt-3 space-y-1 border-t border-zinc-200 pt-3 dark:border-zinc-700">
+                            @foreach ($this->devices as $device)
+                                <div class="flex items-center gap-2 text-sm" wire:key="device-{{ $device->id }}" data-test="push-device">
+                                    <span class="min-w-0 flex-1 truncate">
+                                        {{ $device->label }}
+                                        <flux:badge size="sm" color="emerald" x-show="currentHash === @js($device->endpoint_hash)" x-cloak>{{ __('This device') }}</flux:badge>
+                                    </span>
+                                    <span class="shrink-0 text-xs text-zinc-500">{{ $device->last_used_at ? __('last used :time', ['time' => $device->last_used_at->diffForHumans()]) : __('added :time', ['time' => $device->created_at->diffForHumans()]) }}</span>
+                                    <flux:button size="xs" variant="subtle" icon="x-mark" :aria-label="__('Remove')" :title="__('Remove')"
+                                        x-on:click="remove({{ $device->id }}, @js($device->endpoint_hash))" data-test="push-device-remove" />
+                                </div>
+                            @endforeach
+                        </div>
+                    @endif
+                </div>
             @endif
 
             <div class="space-y-2">
@@ -291,6 +407,17 @@ new #[Title('Alerts')] class extends Component {
                 <flux:input wire:model="name" :label="__('Name')" />
 
                 @switch($type)
+                    @case('push')
+                        <flux:callout icon="bell" variant="secondary" data-test="push-channel-note">
+                            <flux:callout.text>
+                                @if ($this->team)
+                                    {{ __('Sends to the devices of everyone in :team who turned on push notifications (Settings → Alerts, on each device).', ['team' => $this->team->name]) }}
+                                @else
+                                    {{ __('Sends to every device you turned on push notifications for, above this list.') }}
+                                @endif
+                            </flux:callout.text>
+                        </flux:callout>
+                        @break
                     @case('email')
                         <flux:input wire:model="fields.address" type="email" :label="__('Email address')" />
                         <flux:error name="fields.address" />

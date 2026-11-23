@@ -126,6 +126,12 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
         return $this->hasMany(AlertChannel::class)->orderBy('name');
     }
 
+    /** @return HasMany<PushSubscription, $this> */
+    public function pushSubscriptions(): HasMany
+    {
+        return $this->hasMany(PushSubscription::class)->latest('id');
+    }
+
     /** @return HasMany<WatchlistItem, $this> */
     public function watchlist(): HasMany
     {

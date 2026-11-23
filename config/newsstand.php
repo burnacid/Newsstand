@@ -110,6 +110,15 @@ return [
         'allow_private' => (bool) env('NEWSSTAND_ALERTS_ALLOW_PRIVATE', false),
         // Only stories published this recently trigger alerts (no alerts for old news found later).
         'max_story_age_days' => 7,
+
+        // Push notifications. Without keys here, a key pair is generated once and kept (encrypted) in the
+        // settings table. Set both to pin them, e.g. when moving servers. Generate with `php artisan push:keys`.
+        'push' => [
+            'public_key' => env('NEWSSTAND_PUSH_PUBLIC_KEY'),
+            'private_key' => env('NEWSSTAND_PUSH_PRIVATE_KEY'),
+            // Push services contact this address if something is wrong with our notifications.
+            'subject' => env('NEWSSTAND_PUSH_SUBJECT'),
+        ],
     ],
 
     /*

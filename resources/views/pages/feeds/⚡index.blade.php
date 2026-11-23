@@ -25,6 +25,19 @@ new #[Title('Feeds')] class extends Component {
     public string $url = '';
     public string $folderId = '';
 
+    /** Opened through "Share to Newsstand" (/share), with the shared address filled in. */
+    public bool $shared = false;
+
+    public function mount(): void
+    {
+        $add = request()->query('add');
+
+        if (is_string($add) && strlen($add) <= 2000 && preg_match('~^https?://~i', $add) && filter_var($add, FILTER_VALIDATE_URL)) {
+            $this->url = $add;
+            $this->shared = true;
+        }
+    }
+
     /** @var list<array{url: string, title: string|null}> */
     public array $candidates = [];
 
@@ -320,6 +333,10 @@ new #[Title('Feeds')] class extends Component {
     {{-- Subscribe --}}
     <flux:card class="space-y-4">
         <flux:heading size="lg">{{ __('Add a feed') }}</flux:heading>
+
+        @if ($shared)
+            <flux:text size="sm" data-test="shared-url-note">{{ __('Shared to Newsstand. Pick a folder if you like, then press Subscribe to follow this site.') }}</flux:text>
+        @endif
 
         <form wire:submit="discover" class="flex flex-col gap-3 sm:flex-row sm:items-start">
             <div class="flex-1">

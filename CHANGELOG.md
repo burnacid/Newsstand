@@ -6,6 +6,34 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+
+- **Installable app (PWA)**: a service worker (`/sw.js`) makes Newsstand installable from the browser. The app opens
+  on the reader, has Reader, Dashboards and Security shortcuts, and shows an offline page when there is no
+  connection, reloading by itself once it is back. Pages are never cached on the device (signing out leaves nothing
+  behind); only build assets and brand images are, and each release replaces those caches.
+- **Push notifications**: a new "Push notification" alert channel. Turn push on per device in Settings → Alerts
+  (each device is listed and can be removed); alerts then pop up on all of them, and clicking one opens the story.
+  A team's push channel reaches the devices of everyone in the team. Critical alerts stay until dismissed. Devices
+  the push service reports as gone are removed. The keys are generated on first use (stored encrypted), or set with
+  `NEWSSTAND_PUSH_PUBLIC_KEY` / `NEWSSTAND_PUSH_PRIVATE_KEY` (`php artisan push:keys` prints a pair).
+- **Install app** in the user menu when the browser offers to install Newsstand.
+- **"Newsstand was updated"** notice with a Reload button when a new version takes over an open page.
+- **Share to Newsstand**: share a link from your phone's share menu to the installed app to subscribe to that site
+  (opens the Feeds page with the address filled in).
+
+### Changed
+
+- The web app manifest now starts at the reader instead of the dashboards, and has an id, scope and shortcuts.
+- The tag, time period, widget size and team tag color buttons show a plain browser tooltip.
+
+### Fixed
+
+- Pressing Escape in a menu in the reader (such as the tag menu) threw "Invalid to show a popover during another
+  show operation" and also closed the story. Escape now only closes the menu, also when focus has moved out of it
+  after toggling a tag; with no menu open it closes the story as before.
+- Leaving the reader while it was checking for new stories could log "newCount is not defined".
+
 ## [1.6.0] - 2026-11-23
 
 ### Added
