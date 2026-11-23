@@ -31,6 +31,7 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
  * @property Carbon|null $updated_at
  * @property bool $is_admin
  * @property Carbon|null $disabled_at
+ * @property int|null $default_dashboard_id
  */
 #[Fillable(['name', 'email', 'password'])]
 #[Hidden(['password', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token'])]
@@ -38,6 +39,14 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
 {
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable, PasskeyAuthenticatable, TwoFactorAuthenticatable;
+
+    protected static function booted(): void
+    {
+        // Personal dashboards go with their owner; team dashboards stay with the team.
+        static::deleting(function (User $user) {
+            Dashboard::query()->where('owner_id', $user->id)->whereNull('team_id')->delete();
+        });
+    }
 
     /**
      * Get the attributes that should be cast.
@@ -72,6 +81,17 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     public function dashboards(): HasMany
     {
         return $this->hasMany(Dashboard::class, 'owner_id')->orderBy('name');
+    }
+
+    /**
+     * The dashboard the "Dashboards" link opens, as long as this user can still see it
+     * (they may have left the team or been removed from it).
+     */
+    public function defaultDashboard(): ?Dashboard
+    {
+        $dashboard = $this->default_dashboard_id ? Dashboard::find($this->default_dashboard_id) : null;
+
+        return $dashboard?->roleOf($this) !== null ? $dashboard : null;
     }
 
     /**

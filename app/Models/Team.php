@@ -34,6 +34,18 @@ class Team extends Model
         return $this->hasMany(Folder::class)->orderBy('position')->orderBy('name');
     }
 
+    /** @return HasMany<Rule, $this> */
+    public function rules(): HasMany
+    {
+        return $this->hasMany(Rule::class)->orderBy('position')->orderBy('id');
+    }
+
+    /** @return HasMany<Tag, $this> */
+    public function tags(): HasMany
+    {
+        return $this->hasMany(Tag::class)->orderBy('name');
+    }
+
     /** @return HasMany<Subscription, $this> */
     public function subscriptions(): HasMany
     {

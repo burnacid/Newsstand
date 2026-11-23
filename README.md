@@ -18,13 +18,17 @@ Built with Laravel 13, Livewire 4 and Flux. Runs on PostgreSQL (recommended), My
 - **Watchlist**: the vendors and products you run; stories and CVEs that affect them are flagged, with a CVE page
   per vulnerability (scores, exploitation, affected products, every story about it).
 - **Rules**: "when a story matches … then highlight / tag / star / save / mark read / mute", with presets for
-  exploited and critical vulnerabilities.
-- **Dashboards**: widget pages (feeds, folders, searches, tags, top stories, vulnerabilities), shared with other
-  users as viewer or editor, or published as a public read-only link. Each viewer keeps their own read state.
+  exploited and critical vulnerabilities. Teams have rules too: they run on the team's feeds and add a team tag,
+  highlight for everyone or alert the team's channels.
+- **Dashboards**: widget pages (feeds, folders, searches, tags, top stories, vulnerabilities) in three widths,
+  shared with other users as viewer or editor, or published as a public read-only link. Each viewer keeps their own
+  read state. Team dashboards belong to the team: they use the team's feeds, its owners and admins manage them, and
+  they stay when their creator leaves.
 - **Alerts** to email, ntfy, Gotify, Slack, Teams or Discord: for watchlist stories, watched products newly exploited
   (CISA KEV), and rule matches. Never more than once per story per channel; bursts arrive as one summary.
-- **Teams**: shared feed folders, a team watchlist with team alert channels, team dashboards and notes on stories,
-  with owner / admin / member roles and expiring invite links. Read state stays personal.
+- **Teams**: shared feed folders, shared tags, team rules, a team watchlist with team alert channels, team
+  dashboards and notes on stories, with owner / admin / member roles and expiring invite links. Read state stays
+  personal.
 - **Daily digest** email, opt-in per user.
 
 ## Local development

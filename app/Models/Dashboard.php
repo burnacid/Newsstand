@@ -9,11 +9,17 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * A page of widgets. Content comes from the owner's feeds, folders and tags;
- * members (viewers / editors) see it without subscribing, with their own read state.
+ * A page of widgets. Members (viewers / editors) see it without subscribing, with their own read state.
+ *
+ * Personal dashboard (team_id null): belongs to its owner; content comes from the owner's feeds,
+ * folders, tags and stars. Removed with the owner.
+ *
+ * Team dashboard: belongs to the team; team owners/admins manage it and members view it. Content
+ * comes from the team's feeds, folders and watchlist. owner_id is only "created by" (null once that
+ * user is gone). Removed with the team.
  *
  * @property int $id
- * @property int $owner_id
+ * @property int|null $owner_id
  * @property int|null $team_id
  * @property string $name
  * @property string|null $description
@@ -48,28 +54,41 @@ class Dashboard extends Model
         return $this->belongsToMany(User::class)->withPivot('role')->withTimestamps();
     }
 
+    public function isTeamDashboard(): bool
+    {
+        return $this->team_id !== null;
+    }
+
+    /**
+     * 'owner' (manage: rename, delete, share, move), 'editor', 'viewer' or null.
+     * Team dashboards: team owners/admins manage, members view; a direct share can grant editing.
+     */
     public function roleOf(?User $user): ?string
     {
         if ($user === null) {
             return null;
         }
 
-        if ($user->id === $this->owner_id) {
-            return 'owner';
-        }
-
         $role = $this->members()->whereKey($user->id)->value('role');
 
-        // Shared with a team: team owners/admins edit, members view (a direct share can grant more).
-        if ($role !== 'editor' && $this->team_id !== null) {
-            $teamRole = $this->team?->roleOf($user);
-
-            if ($teamRole !== null) {
-                return in_array($teamRole, ['owner', 'admin'], true) ? 'editor' : 'viewer';
-            }
+        if (! $this->isTeamDashboard()) {
+            return $user->id === $this->owner_id ? 'owner' : $role;
         }
 
-        return $role;
+        $teamRole = $this->team?->roleOf($user);
+
+        return match (true) {
+            in_array($teamRole, ['owner', 'admin'], true) => 'owner',
+            $role !== null => $role,
+            $teamRole !== null => 'viewer',
+            default => null,
+        };
+    }
+
+    /** Who the content belongs to, for labels: the team's or the owner's name. */
+    public function curatorName(): string
+    {
+        return $this->team->name ?? $this->owner->name ?? __('Newsstand');
     }
 
     public function publicUrl(): ?string

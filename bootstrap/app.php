@@ -18,12 +18,9 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->append(SecurityHeaders::class);
         $middleware->prependToGroup('web', ResolveSecureSessionCookie::class);
         $middleware->appendToGroup('web', EnsureAccountIsActive::class);
-
-        // Behind a reverse proxy (Caddy, Traefik, nginx, Cloudflare Tunnel...):
-        // set TRUSTED_PROXIES to its IP/CIDR, or "*" when only the proxy can reach the app.
-        if ($proxies = env('TRUSTED_PROXIES')) {
-            $middleware->trustProxies(at: $proxies === '*' ? '*' : array_map('trim', explode(',', $proxies)));
-        }
+        // Signed-in users who open a guest page (login, register) land in the reader.
+        $middleware->redirectUsersTo(fn () => route('reader'));
+        // Trusted proxies are configured in AppServiceProvider from config('app.trusted_proxies').
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

@@ -4,6 +4,8 @@ namespace App\Services\Reader;
 
 use App\Models\Entry;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Collection;
 
 /**
@@ -21,7 +23,30 @@ class TopStories
     /** @return Collection<int, Entry> each with top_score and top_sources attributes */
     public function for(User $user, int $limit = 50): Collection
     {
-        $entries = $this->query->for($user, ReaderSource::all())
+        return $this->rank($this->query->for($user, ReaderSource::all()), $limit);
+    }
+
+    /**
+     * Top stories among a set of feeds, without anyone's read or mute state (team dashboards).
+     *
+     * @return Collection<int, Entry> each with top_score and top_sources attributes
+     */
+    public function forFeeds(QueryBuilder $feedIds, int $limit = 50): Collection
+    {
+        return $this->rank(
+            Entry::query()->select('entries.*')->whereIn('entries.feed_id', $feedIds)
+                ->orderByDesc('entries.published_at')->orderByDesc('entries.id'),
+            $limit,
+        );
+    }
+
+    /**
+     * @param  Builder<Entry>  $query
+     * @return Collection<int, Entry>
+     */
+    private function rank(Builder $query, int $limit): Collection
+    {
+        $entries = $query
             ->where('entries.published_at', '>=', now()->subHours(self::WINDOW_HOURS))
             ->with(['feed:id,title,url,site_url', 'cves', 'cluster'])
             ->limit(2000)

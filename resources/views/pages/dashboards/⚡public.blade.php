@@ -32,7 +32,7 @@ new #[Layout('layouts::public')] #[Title('Shared dashboard')] class extends Comp
     #[Computed]
     public function dashboard(): Dashboard
     {
-        return Dashboard::with(['owner', 'widgets'])->findOrFail($this->dashboardId);
+        return Dashboard::with(['owner', 'team', 'widgets'])->findOrFail($this->dashboardId);
     }
 
     #[Computed]
@@ -72,13 +72,13 @@ new #[Layout('layouts::public')] #[Title('Shared dashboard')] class extends Comp
             <div class="text-[0.7rem] font-medium tracking-[0.2em] text-zinc-500 uppercase">{{ now()->isoFormat('dddd, D MMMM YYYY') }}</div>
             <h1 class="mt-2 font-serif text-4xl font-semibold tracking-tight">{{ $this->dashboard->name }}</h1>
         </div>
-        <span class="text-sm text-zinc-500">{{ __('Curated by :name', ['name' => $this->dashboard->owner->name]) }}</span>
+        <span class="text-sm text-zinc-500">{{ __('Curated by :name', ['name' => $this->dashboard->curatorName()]) }}</span>
     </div>
 
     <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         @foreach ($this->dashboard->widgets as $widget)
             @php($items = $this->contents[$widget->id] ?? collect())
-            <section wire:key="pw-{{ $widget->id }}" @class(['rounded-xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60', 'md:col-span-2' => $widget->wide])>
+            <section wire:key="pw-{{ $widget->id }}" @class(['rounded-xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60', 'md:col-span-2' => $widget->size !== 'normal', 'xl:col-span-3' => $widget->size === 'full'])>
                 <header class="flex items-center gap-2 border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
                     <flux:icon :name="$widget->icon()" variant="micro" class="text-emerald-700 dark:text-emerald-400" />
                     <h2 class="truncate font-serif text-lg font-semibold">{{ $this->title($widget) }}</h2>

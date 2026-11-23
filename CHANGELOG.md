@@ -6,6 +6,55 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+
+- **Team dashboards in the sidebar**: each team now has one sidebar group holding its dashboards, then its folders
+  and feeds. Team folders no longer appear as separate "Team · Folder" groups.
+- A new dashboard can be given to a team you own or administer straight from the "New dashboard" form.
+- **Personal dashboards in the sidebar**: a "Dashboards" group lists your own dashboards without a team and the ones
+  shared with you directly.
+- **Default dashboard**: star a dashboard to make it your default. The sidebar "Dashboards" link opens it (or the
+  overview when none is set), and it is starred and listed first in the sidebar.
+- **Widget sizes**: widgets can be normal, wide (two columns) or full width, from the widget editor or the new size
+  menu on each widget in edit mode. Replaces the "Double width" checkbox; existing wide widgets stay wide.
+
+- **Team tags**: teams get shared tags. Team owners and admins create, rename, recolor and delete them on the team
+  page; anyone in the team puts them on stories from the reader's tag menu (listed under the team's name). They
+  show under the team in the sidebar and can fill a tag widget on a team dashboard.
+- **Team rules**: team owners and admins pick the team on the Rules page (or use "Team rules" on the team page).
+  Team rules run on the team's shared feeds, use the team's folders and watchlist in conditions, and can add a team
+  tag, highlight a story for everyone in the team, and alert the team's channels. Starring, saving, reading and
+  muting stay personal.
+- Personal rules can add your teams' tags as well as your own.
+
+### Changed
+
+- Signing in, and opening the site while signed in, now goes straight to the reader instead of your most recently
+  updated dashboard or the welcome page.
+- **Team dashboards belong to the team** instead of to the person who created them:
+  - they show the team's feeds, folders and watchlist (no personal tag or starred widgets), so what members see no
+    longer depends on one person's subscriptions;
+  - team owners and admins manage them (rename, share, public link, delete); members can view, and a direct share can
+    still make someone an editor;
+  - they stay when their creator leaves the team or deletes their account, and are deleted with the team;
+  - only team owners and admins can create a team dashboard or move one into or out of a team ("Belongs to" in the
+    Share dialog). Creators who are plain team members keep editing their existing team dashboards through an editor
+    share added by the migration.
+- The dashboards overview lists team dashboards in their own section.
+
+### Fixed
+
+- Saving a dashboard widget could silently fail after switching "Shows" to another type: a leftover value from the
+  previous type's picker was validated and its error had nowhere to show.
+- Top stories could recurse until PHP ran out of memory when stories were loaded without a reader's state
+  (`Entry::highlight()`).
+- Dragging widgets on a dashboard works again. Drag and drop was never set up when you switched to edit mode, so
+  the handles did nothing.
+- CI now runs on PHP 8.4 (matching the production image); the locked Symfony 8.1 packages require PHP >= 8.4.1, which broke `composer install` on PHP 8.3. `composer.json` now requires `php ^8.4`.
+- `TRUSTED_PROXIES` is now read via `config('app.trusted_proxies')` in `AppServiceProvider` instead of `env()` in `bootstrap/app.php`, so it also works when the config is cached from a `.env` file.
+- Horizon prefix no longer breaks when `APP_NAME` is parsed as a boolean.
+- PHPStan runs with a 1G memory limit so `composer test` no longer crashes on the default 128M `memory_limit`.
+
 ## [1.5.0] - 2026-11-23
 
 ### Added

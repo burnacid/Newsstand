@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -28,6 +29,7 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->configureDefaults();
+        $this->configureTrustedProxies();
 
         Gate::define('admin', fn (User $user) => $user->isAdmin() && ! $user->isDisabled());
 
@@ -39,6 +41,22 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('article-scan', fn (object $job) => Limit::perSecond(1, 3)->by(
             'article-scan:'.(parse_url((string) ($job->entry->url ?? ''), PHP_URL_HOST) ?: 'unknown')
         ));
+    }
+
+    /**
+     * Trust the reverse proxies listed in TRUSTED_PROXIES ("*" trusts any).
+     */
+    protected function configureTrustedProxies(): void
+    {
+        $proxies = config('app.trusted_proxies');
+
+        if (! is_string($proxies) || trim($proxies) === '') {
+            return;
+        }
+
+        TrustProxies::at(trim($proxies) === '*'
+            ? '*'
+            : array_values(array_filter(array_map('trim', explode(',', $proxies)))));
     }
 
     /**

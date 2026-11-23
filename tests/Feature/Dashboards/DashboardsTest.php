@@ -161,6 +161,60 @@ it('reorders widgets', function () {
     expect($this->dashboard->widgets()->pluck('id')->all())->toBe([$second->id, $this->widget->id]);
 });
 
+it('ignores leftover values of other widget types when saving', function () {
+    $tag = $this->owner->tags()->create(['name' => 'curated']);
+
+    // A stale feed id from before switching "Shows" to a tag must not block saving.
+    Livewire::actingAs($this->owner)->test('pages::dashboards.show', ['dashboard' => $this->dashboard])
+        ->call('newWidget')
+        ->set('wFeedId', '999999')
+        ->set('wType', 'tag')
+        ->set('wTagId', (string) $tag->id)
+        ->call('saveWidget')
+        ->assertHasNoErrors();
+
+    expect($this->dashboard->widgets()->where('type', 'tag')->first()->config)->toBe(['limit' => 8, 'tag_id' => $tag->id]);
+});
+
+it('sizes widgets normal, wide or full width', function () {
+    $component = Livewire::actingAs($this->owner)->test('pages::dashboards.show', ['dashboard' => $this->dashboard])
+        ->call('editWidget', $this->widget->id)
+        ->assertSet('wSize', 'normal')
+        ->set('wSize', 'full')
+        ->call('saveWidget')
+        ->assertHasNoErrors();
+
+    expect($this->widget->fresh()->size)->toBe('full');
+    $component->assertSeeHtml('xl:col-span-3');
+
+    $component->call('resizeWidget', $this->widget->id, 'wide');
+    expect($this->widget->fresh()->size)->toBe('wide');
+
+    // Unknown sizes are ignored.
+    $component->call('resizeWidget', $this->widget->id, 'huge');
+    expect($this->widget->fresh()->size)->toBe('wide');
+
+    $component->call('editWidget', $this->widget->id)->set('wSize', 'huge')->call('saveWidget')->assertHasErrors('wSize');
+});
+
+it('does not let viewers resize widgets', function () {
+    Livewire::actingAs($this->viewer)->test('pages::dashboards.show', ['dashboard' => $this->dashboard])
+        ->call('resizeWidget', $this->widget->id, 'full')
+        ->assertForbidden();
+
+    expect($this->widget->fresh()->size)->toBe('normal');
+});
+
+it('re-creates the widget grid with drag and drop when editing starts', function () {
+    // wire:sort only initializes on a new element, so the grid's key must change with edit mode.
+    Livewire::actingAs($this->owner)->test('pages::dashboards.show', ['dashboard' => $this->dashboard])
+        ->assertSeeHtml('wire:key="widgets-view"')
+        ->assertDontSeeHtml('wire:sort="sortWidget"')
+        ->call('toggleEditing')
+        ->assertSeeHtml('wire:key="widgets-edit"')
+        ->assertSeeHtml('wire:sort="sortWidget"');
+});
+
 // --- Unread only ---
 
 it('shows only the viewer\'s unread stories when asked', function () {
@@ -247,10 +301,62 @@ it('lets members leave and owners delete', function () {
     expect(Dashboard::count())->toBe(0);
 });
 
-it('sends you to your latest dashboard after login', function () {
-    $this->actingAs($this->owner)->get(route('dashboard'))->assertRedirect(route('dashboards.show', $this->dashboard));
-    $this->actingAs($this->viewer)->get(route('dashboard'))->assertRedirect(route('dashboards.show', $this->dashboard));
-    $this->actingAs($this->stranger)->get(route('dashboard'))->assertRedirect(route('reader'));
+// --- Default dashboard ---
+
+it('opens your default dashboard from the Dashboards link, or the overview without one', function () {
+    $this->actingAs($this->owner)->get(route('dashboard'))->assertRedirect(route('dashboards.index'));
+
+    Livewire::actingAs($this->viewer)->test('pages::dashboards.show', ['dashboard' => $this->dashboard])
+        ->call('toggleDefault');
+
+    expect($this->viewer->fresh()->default_dashboard_id)->toBe($this->dashboard->id);
+    $this->actingAs($this->viewer->fresh())->get(route('dashboard'))->assertRedirect(route('dashboards.show', $this->dashboard));
+
+    // Toggling again unsets it.
+    Livewire::actingAs($this->viewer->fresh())->test('pages::dashboards.show', ['dashboard' => $this->dashboard])
+        ->call('toggleDefault');
+    expect($this->viewer->fresh()->default_dashboard_id)->toBeNull();
+});
+
+it('ignores a default dashboard you can no longer see', function () {
+    $this->viewer->forceFill(['default_dashboard_id' => $this->dashboard->id])->save();
+    $this->dashboard->members()->detach($this->viewer->id);
+
+    expect($this->viewer->fresh()->defaultDashboard())->toBeNull();
+    $this->actingAs($this->viewer->fresh())->get(route('dashboard'))->assertRedirect(route('dashboards.index'));
+});
+
+it('clears the default when the dashboard is deleted', function () {
+    $this->owner->forceFill(['default_dashboard_id' => $this->dashboard->id])->save();
+    $this->dashboard->delete();
+
+    expect($this->owner->fresh()->default_dashboard_id)->toBeNull();
+});
+
+it('does not let strangers set a dashboard as their default', function () {
+    Livewire::actingAs($this->stranger)->test('pages::dashboards.show', ['dashboard' => $this->dashboard])
+        ->assertForbidden();
+
+    expect($this->stranger->fresh()->default_dashboard_id)->toBeNull();
+});
+
+// --- Sidebar ---
+
+it('lists personal and shared dashboards in the sidebar, default first', function () {
+    $other = $this->owner->dashboards()->create(['name' => 'Another board']);
+
+    $this->actingAs($this->owner);
+    Livewire::test('reader.nav')->assertSeeInOrder(['Dashboards', 'Another board', 'Security briefing']);
+
+    $this->owner->forceFill(['default_dashboard_id' => $this->dashboard->id])->save();
+    Livewire::test('reader.nav')->assertSeeInOrder(['Dashboards', 'Security briefing', 'Another board']);
+
+    // Shared directly with you.
+    $this->actingAs($this->viewer);
+    Livewire::test('reader.nav')->assertSee('Security briefing')->assertDontSee('Another board');
+
+    $this->actingAs($this->stranger);
+    Livewire::test('reader.nav')->assertDontSee('Security briefing');
 });
 
 // --- Public link ---

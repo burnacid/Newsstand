@@ -4,6 +4,7 @@ namespace App\Services\Teams;
 
 use App\Models\Folder;
 use App\Models\Subscription;
+use App\Models\Tag;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Query\Builder as QueryBuilder;
@@ -44,6 +45,18 @@ class FeedAccess
         return Folder::query()->where(fn (Builder $q) => $q
             ->where('folders.user_id', $user->id)
             ->orWhereIn('folders.team_id', self::teamIds($user)));
+    }
+
+    /**
+     * Tags the user can use: their own and their teams'.
+     *
+     * @return Builder<Tag>
+     */
+    public static function tags(User $user): Builder
+    {
+        return Tag::query()->where(fn (Builder $q) => $q
+            ->where('tags.user_id', $user->id)
+            ->orWhereIn('tags.team_id', self::teamIds($user)));
     }
 
     /** Feed ids the user can read (subquery), optionally within one (personal or team) folder. */

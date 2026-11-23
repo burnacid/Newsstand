@@ -35,7 +35,7 @@ new #[Title('Dashboard')] class extends Component {
     public string $wQuery = '';
     public string $wFilter = 'kev';
     public int $wLimit = 8;
-    public bool $wWide = false;
+    public string $wSize = 'normal';
 
     // Sharing
     public string $shareEmail = '';
@@ -73,7 +73,7 @@ new #[Title('Dashboard')] class extends Component {
     #[Computed]
     public function dashboard(): Dashboard
     {
-        return Dashboard::with(['owner', 'widgets'])->findOrFail($this->dashboardId);
+        return Dashboard::with(['owner', 'team', 'widgets'])->findOrFail($this->dashboardId);
     }
 
     #[Computed]
@@ -106,11 +106,29 @@ new #[Title('Dashboard')] class extends Component {
         return app(EntryQuery::class)->signalsFor($ids);
     }
 
-    /** Widget options come from the owner's feeds, folders and tags (content is the owner's). */
+    /**
+     * Widget options come from whoever the content belongs to: the team's feeds, folders and tags
+     * on a team dashboard, the owner's feeds, folders and tags on a personal one.
+     */
     #[Computed]
     public function options(): array
     {
-        $owner = $this->dashboard->owner;
+        $dashboard = $this->dashboard;
+
+        if ($dashboard->isTeamDashboard()) {
+            return [
+                'feeds' => $dashboard->team->subscriptions()->with('feed:id,title,url')->get()
+                    ->map(fn ($s) => ['id' => $s->feed_id, 'title' => $s->displayTitle()])->sortBy('title', SORT_NATURAL | SORT_FLAG_CASE)->values(),
+                'folders' => $dashboard->team->folders()->get(['id', 'name']),
+                'tags' => $dashboard->team->tags()->get(['id', 'name']),
+            ];
+        }
+
+        $owner = $dashboard->owner;
+
+        if ($owner === null) {
+            return ['feeds' => collect(), 'folders' => collect(), 'tags' => collect()];
+        }
 
         return [
             'feeds' => FeedAccess::subscriptions($owner)->with('feed:id,title,url')->orderByRaw('user_id is null')->get()->unique('feed_id')
@@ -147,9 +165,9 @@ new #[Title('Dashboard')] class extends Component {
             'folder' => $o['folders']->firstWhere('id', $c['folder_id'] ?? null)?->name ?? __('Folder'),
             'tag' => '#'.($o['tags']->firstWhere('id', $c['tag_id'] ?? null)?->name ?? __('tag')),
             'search' => __('Search: :q', ['q' => $c['query'] ?? '']),
-            'starred' => __('Starred by :name', ['name' => $this->dashboard->owner->name]),
+            'starred' => __('Starred by :name', ['name' => $this->dashboard->curatorName()]),
             'top' => __('Top stories'),
-            'watchlist' => __(':name’s watchlist', ['name' => $this->dashboard->owner->name]),
+            'watchlist' => __(':name’s watchlist', ['name' => $this->dashboard->curatorName()]),
             'cves' => match ($c['filter'] ?? 'kev') {
                 'critical' => __('Critical vulnerabilities'),
                 'mentioned' => __('Vulnerabilities in the news'),
@@ -174,6 +192,27 @@ new #[Title('Dashboard')] class extends Component {
         unset($this->contents, $this->openEntry);
 
         Flux::modal('story')->show();
+    }
+
+    // --- Default ---
+
+    public function isDefault(): bool
+    {
+        return Auth::user()->default_dashboard_id === $this->dashboardId;
+    }
+
+    /** The sidebar "Dashboards" link opens your default dashboard. */
+    public function toggleDefault(): void
+    {
+        $this->authorize('view', $this->dashboard);
+
+        $user = Auth::user();
+        $user->forceFill(['default_dashboard_id' => $this->isDefault() ? null : $this->dashboardId])->save();
+
+        $this->dispatch('dashboards-changed');
+        Flux::toast(text: $this->isDefault()
+            ? __('“:name” is now your default dashboard.', ['name' => $this->dashboard->name])
+            : __('No default dashboard. The Dashboards link opens the overview.'));
     }
 
     // --- Editing widgets ---
@@ -208,7 +247,7 @@ new #[Title('Dashboard')] class extends Component {
         $this->wQuery = (string) ($c['query'] ?? '');
         $this->wFilter = (string) ($c['filter'] ?? 'kev');
         $this->wLimit = $widget->limit();
-        $this->wWide = $widget->wide;
+        $this->wSize = $widget->size;
 
         Flux::modal('widget')->show();
     }
@@ -219,13 +258,14 @@ new #[Title('Dashboard')] class extends Component {
         $o = $this->options;
 
         $this->validate([
-            'wType' => ['required', Rule::in(DashboardWidget::TYPES)],
+            'wType' => ['required', Rule::in($this->widgetTypes())],
+            'wSize' => ['required', Rule::in(DashboardWidget::SIZES)],
             'wTitle' => ['nullable', 'string', 'max:100'],
             'wLimit' => ['integer', 'min:3', 'max:20'],
-            'wFeedId' => [Rule::requiredIf($this->wType === 'feed'), 'nullable', Rule::in($o['feeds']->pluck('id')->map(fn ($id) => (string) $id)->all())],
-            'wFolderId' => [Rule::requiredIf($this->wType === 'folder'), 'nullable', Rule::in($o['folders']->pluck('id')->map(fn ($id) => (string) $id)->all())],
-            'wTagId' => [Rule::requiredIf($this->wType === 'tag'), 'nullable', Rule::in($o['tags']->pluck('id')->map(fn ($id) => (string) $id)->all())],
-            'wQuery' => [Rule::requiredIf($this->wType === 'search'), 'nullable', 'string', 'max:200'],
+            'wFeedId' => ['exclude_unless:wType,feed', 'required', Rule::in($o['feeds']->pluck('id')->map(fn ($id) => (string) $id)->all())],
+            'wFolderId' => ['exclude_unless:wType,folder', 'required', Rule::in($o['folders']->pluck('id')->map(fn ($id) => (string) $id)->all())],
+            'wTagId' => ['exclude_unless:wType,tag', 'required', Rule::in($o['tags']->pluck('id')->map(fn ($id) => (string) $id)->all())],
+            'wQuery' => ['exclude_unless:wType,search', 'required', 'string', 'max:200'],
             'wFilter' => ['in:kev,critical,mentioned'],
         ], [], [
             'wFeedId' => __('feed'), 'wFolderId' => __('folder'), 'wTagId' => __('tag'), 'wQuery' => __('search'),
@@ -240,7 +280,7 @@ new #[Title('Dashboard')] class extends Component {
             'filter' => $this->wType === 'cves' ? $this->wFilter : null,
         ], fn ($v) => $v !== null);
 
-        $data = ['type' => $this->wType, 'title' => $this->wTitle ?: null, 'config' => $config, 'wide' => $this->wWide];
+        $data = ['type' => $this->wType, 'title' => $this->wTitle ?: null, 'config' => $config, 'size' => $this->wSize];
 
         if ($this->widgetId) {
             $this->findWidget($this->widgetId)->update($data);
@@ -251,6 +291,24 @@ new #[Title('Dashboard')] class extends Component {
         Flux::modal('widget')->close();
         $this->editing = true;
         unset($this->dashboard, $this->contents);
+    }
+
+    /** Widget types this dashboard offers: team dashboards have no personal stars. */
+    public function widgetTypes(): array
+    {
+        return $this->dashboard->isTeamDashboard()
+            ? array_values(array_diff(DashboardWidget::TYPES, DashboardWidget::PERSONAL_TYPES))
+            : DashboardWidget::TYPES;
+    }
+
+    public function resizeWidget(int $id, string $size): void
+    {
+        $this->authorize('update', $this->dashboard);
+
+        if (in_array($size, DashboardWidget::SIZES, true)) {
+            $this->findWidget($id)->update(['size' => $size]);
+            unset($this->dashboard);
+        }
     }
 
     public function removeWidget(int $id): void
@@ -308,24 +366,47 @@ new #[Title('Dashboard')] class extends Component {
         Flux::toast(variant: 'success', text: __('Shared with :name.', ['name' => $user->name]));
     }
 
-    /** Teams the owner belongs to, for sharing with a whole team. */
+    /** Teams you own or administer: the ones you can give a dashboard to. */
     #[Computed]
-    public function ownerTeams(): Collection
+    public function adminTeams(): Collection
     {
-        return Auth::user()->teams()->get();
+        return Auth::user()->teams()->wherePivotIn('role', ['owner', 'admin'])->get();
     }
 
-    public function shareWithTeam(string $teamId): void
+    /**
+     * Give the dashboard to a team ('' = make it yours personally). Team dashboards belong to the
+     * team: its owners and admins manage them and its members view them.
+     */
+    public function moveTo(string $teamId): void
     {
         $this->authorize('manage', $this->dashboard);
 
-        $team = $teamId === '' ? null : $this->ownerTeams->firstWhere('id', (int) $teamId);
-        $this->dashboard->forceFill(['team_id' => $team?->id])->save();
-        unset($this->dashboard);
+        $user = Auth::user();
+        $dashboard = $this->dashboard;
 
-        Flux::toast(variant: 'success', text: $team
-            ? __('Shared with everyone in :team.', ['team' => $team->name])
-            : __('No longer shared with a team.'));
+        if ($teamId === '') {
+            $dashboard->forceFill(['team_id' => null, 'owner_id' => $user->id])->save();
+            $message = __('“:name” is now your personal dashboard.', ['name' => $dashboard->name]);
+        } else {
+            $team = $this->adminTeams->firstWhere('id', (int) $teamId);
+
+            if (! $team) {
+                return;
+            }
+
+            $dashboard->forceFill(['team_id' => $team->id])->save();
+            $message = __('“:name” now belongs to :team.', ['name' => $dashboard->name, 'team' => $team->name]);
+        }
+
+        unset($this->dashboard, $this->role, $this->options, $this->contents);
+        $this->dispatch('dashboards-changed');
+        Flux::toast(variant: 'success', text: $message);
+    }
+
+    /** Whether the current user has a direct share (and so can leave the dashboard). */
+    public function isDirectMember(): bool
+    {
+        return $this->dashboard->members()->whereKey(Auth::id())->exists();
     }
 
     public function changeRole(int $userId, string $role): void
@@ -369,6 +450,7 @@ new #[Title('Dashboard')] class extends Component {
 
         $this->dashboard->update(['name' => $this->dashboardName]);
         unset($this->dashboard);
+        $this->dispatch('dashboards-changed');
         Flux::modal('rename')->close();
     }
 
@@ -396,7 +478,7 @@ new #[Title('Dashboard')] class extends Component {
 
     private function resetWidgetForm(): void
     {
-        $this->reset('widgetId', 'wType', 'wTitle', 'wFeedId', 'wFolderId', 'wTagId', 'wQuery', 'wFilter', 'wLimit', 'wWide');
+        $this->reset('widgetId', 'wType', 'wTitle', 'wFeedId', 'wFolderId', 'wTagId', 'wQuery', 'wFilter', 'wLimit', 'wSize');
         $this->resetErrorBag();
     }
 }; ?>
@@ -412,12 +494,21 @@ new #[Title('Dashboard')] class extends Component {
                 <flux:breadcrumbs.item>{{ $dashboard->name }}</flux:breadcrumbs.item>
             </flux:breadcrumbs>
             <flux:heading size="xl" level="1" class="mt-2">{{ $dashboard->name }}</flux:heading>
-            @if ($this->role !== 'owner')
-                <flux:text class="mt-1">{{ __('Shared by :name', ['name' => $dashboard->owner->name]) }} · {{ $this->role === 'editor' ? __('you can edit') : __('view only') }}</flux:text>
+            @if ($dashboard->isTeamDashboard())
+                <flux:text class="mt-1" data-test="dashboard-team-label">
+                    {{ __('Team :team', ['team' => $dashboard->team->name]) }}
+                    · {{ match ($this->role) { 'owner' => __('you manage it'), 'editor' => __('you can edit'), default => __('view only') } }}
+                </flux:text>
+            @elseif ($this->role !== 'owner')
+                <flux:text class="mt-1">{{ __('Shared by :name', ['name' => $dashboard->curatorName()]) }} · {{ $this->role === 'editor' ? __('you can edit') : __('view only') }}</flux:text>
             @endif
         </div>
 
         <div class="flex items-center gap-2">
+            <flux:button variant="ghost" icon="star" wire:click="toggleDefault" data-test="toggle-default"
+                :icon:variant="$this->isDefault() ? 'solid' : 'outline'" @class(['text-amber-500!' => $this->isDefault()])
+                :tooltip="$this->isDefault() ? __('Default dashboard (click to unset)') : __('Make this your default dashboard')"
+                :aria-pressed="$this->isDefault() ? 'true' : 'false'" />
             <div class="me-2 flex items-center rounded-lg bg-zinc-100 p-0.5 dark:bg-zinc-800" data-test="unread-toggle">
                 <flux:button size="sm" :variant="$unreadOnly ? 'subtle' : 'filled'" wire:click="$set('unreadOnly', false)">{{ __('All') }}</flux:button>
                 <flux:button size="sm" :variant="$unreadOnly ? 'filled' : 'subtle'" wire:click="$set('unreadOnly', true)" data-test="unread-only">{{ __('Unread') }}</flux:button>
@@ -435,14 +526,14 @@ new #[Title('Dashboard')] class extends Component {
                     <flux:button icon="share" data-test="share">{{ __('Share') }}</flux:button>
                 </flux:modal.trigger>
                 <flux:dropdown align="end">
-                    <flux:button variant="ghost" icon="ellipsis-horizontal" />
+                    <flux:button variant="ghost" icon="ellipsis-horizontal" data-test="dashboard-menu" />
                     <flux:menu>
                         <flux:modal.trigger name="rename"><flux:menu.item icon="pencil">{{ __('Rename') }}</flux:menu.item></flux:modal.trigger>
                         <flux:menu.item icon="trash" variant="danger" wire:click="deleteDashboard"
                             wire:confirm="{{ __('Delete this dashboard for everyone it is shared with?') }}">{{ __('Delete dashboard') }}</flux:menu.item>
                     </flux:menu>
                 </flux:dropdown>
-            @else
+            @elseif ($this->isDirectMember())
                 <flux:button variant="ghost" icon="arrow-right-start-on-rectangle" wire:click="leave"
                     wire:confirm="{{ __('Remove this dashboard from your list?') }}">{{ __('Leave') }}</flux:button>
             @endif
@@ -460,11 +551,12 @@ new #[Title('Dashboard')] class extends Component {
         </div>
     @endif
 
-    <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3" @if ($editing) wire:sort="sortWidget" @endif>
+    {{-- wire:sort only initializes when the element is created, so re-create the grid when switching to edit mode. --}}
+    <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3" wire:key="widgets-{{ $editing ? 'edit' : 'view' }}" @if ($editing) wire:sort="sortWidget" @endif>
         @foreach ($dashboard->widgets as $widget)
             @php($items = $this->contents[$widget->id] ?? collect())
             <section wire:key="widget-{{ $widget->id }}" wire:sort:item="{{ $widget->id }}"
-                @class(['flex flex-col rounded-xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60', 'md:col-span-2' => $widget->wide, 'ring-2 ring-emerald-500/30' => $editing])>
+                @class(['flex flex-col rounded-xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60', 'md:col-span-2' => $widget->size !== 'normal', 'xl:col-span-3' => $widget->size === 'full', 'ring-2 ring-emerald-500/30' => $editing])>
                 <header class="flex items-center gap-2 border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
                     @if ($editing)
                         <span class="cursor-grab text-zinc-400" wire:sort:handle><flux:icon.bars-2 variant="micro" /></span>
@@ -472,6 +564,14 @@ new #[Title('Dashboard')] class extends Component {
                     <flux:icon :name="$widget->icon()" variant="micro" class="text-emerald-700 dark:text-emerald-400" />
                     <h2 class="min-w-0 flex-1 truncate font-serif text-lg font-semibold">{{ $this->widgetTitle($widget) }}</h2>
                     @if ($editing)
+                        <flux:dropdown align="end">
+                            <flux:button size="xs" variant="subtle" icon="arrows-pointing-out" :tooltip="__('Size')" data-test="widget-size" />
+                            <flux:menu>
+                                @foreach (['normal' => __('Normal'), 'wide' => __('Wide'), 'full' => __('Full width')] as $size => $label)
+                                    <flux:menu.item wire:click="resizeWidget({{ $widget->id }}, '{{ $size }}')" :icon="$widget->size === $size ? 'check' : null" data-test="widget-size-{{ $size }}">{{ $label }}</flux:menu.item>
+                                @endforeach
+                            </flux:menu>
+                        </flux:dropdown>
                         <flux:button size="xs" variant="subtle" icon="cog-6-tooth" wire:click="editWidget({{ $widget->id }})" :tooltip="__('Configure')" />
                         <flux:button size="xs" variant="subtle" icon="trash" wire:click="removeWidget({{ $widget->id }})" wire:confirm="{{ __('Remove this widget?') }}" :tooltip="__('Remove')" />
                     @endif
@@ -537,8 +637,10 @@ new #[Title('Dashboard')] class extends Component {
                     <flux:select.option value="feed">{{ __('A feed') }}</flux:select.option>
                     <flux:select.option value="folder">{{ __('A folder') }}</flux:select.option>
                     <flux:select.option value="search">{{ __('A saved search') }}</flux:select.option>
-                    <flux:select.option value="tag">{{ __('Tagged stories') }}</flux:select.option>
-                    <flux:select.option value="starred">{{ __('Starred stories') }}</flux:select.option>
+                    <flux:select.option value="tag">{{ $dashboard->isTeamDashboard() ? __('Stories with a team tag') : __('Tagged stories') }}</flux:select.option>
+                    @unless ($dashboard->isTeamDashboard())
+                        <flux:select.option value="starred">{{ __('Starred stories') }}</flux:select.option>
+                    @endunless
                     <flux:select.option value="top">{{ __('Top stories') }}</flux:select.option>
                     <flux:select.option value="cves">{{ __('Vulnerabilities') }}</flux:select.option>
                     <flux:select.option value="watchlist">{{ __('Watchlist stories') }}</flux:select.option>
@@ -546,31 +648,31 @@ new #[Title('Dashboard')] class extends Component {
 
                 @switch($wType)
                     @case('feed')
-                        <flux:select wire:model="wFeedId" :label="__('Feed')" :placeholder="__('Choose a feed')">
+                        <flux:select wire:key="w-pick-feed" wire:model="wFeedId" :label="__('Feed')" :placeholder="__('Choose a feed')">
                             @foreach ($this->options['feeds'] as $feed)
                                 <flux:select.option :value="$feed['id']">{{ $feed['title'] }}</flux:select.option>
                             @endforeach
                         </flux:select>
                         @break
                     @case('folder')
-                        <flux:select wire:model="wFolderId" :label="__('Folder')" :placeholder="__('Choose a folder')">
+                        <flux:select wire:key="w-pick-folder" wire:model="wFolderId" :label="__('Folder')" :placeholder="__('Choose a folder')">
                             @foreach ($this->options['folders'] as $folder)
                                 <flux:select.option :value="$folder->id">{{ $folder->name }}</flux:select.option>
                             @endforeach
                         </flux:select>
                         @break
                     @case('tag')
-                        <flux:select wire:model="wTagId" :label="__('Tag')" :placeholder="__('Choose a tag')">
+                        <flux:select wire:key="w-pick-tag" wire:model="wTagId" :label="__('Tag')" :placeholder="__('Choose a tag')">
                             @foreach ($this->options['tags'] as $tag)
                                 <flux:select.option :value="$tag->id">#{{ $tag->name }}</flux:select.option>
                             @endforeach
                         </flux:select>
                         @break
                     @case('search')
-                        <flux:input wire:model="wQuery" :label="__('Search for')" placeholder="ransomware" />
+                        <flux:input wire:key="w-pick-query" wire:model="wQuery" :label="__('Search for')" placeholder="ransomware" />
                         @break
                     @case('cves')
-                        <flux:select wire:model="wFilter" :label="__('Which vulnerabilities')">
+                        <flux:select wire:key="w-pick-cves" wire:model="wFilter" :label="__('Which vulnerabilities')">
                             <flux:select.option value="kev">{{ __('Actively exploited (CISA KEV)') }}</flux:select.option>
                             <flux:select.option value="critical">{{ __('Critical (CVSS 9+)') }}</flux:select.option>
                             <flux:select.option value="mentioned">{{ __('All mentioned in the news') }}</flux:select.option>
@@ -578,14 +680,22 @@ new #[Title('Dashboard')] class extends Component {
                         @break
                 @endswitch
 
-                @if ($this->role !== 'owner' && in_array($wType, ['feed', 'folder', 'tag', 'starred'], true))
-                    <flux:text size="sm">{{ __('Widgets use :name’s feeds, folders and tags.', ['name' => $this->dashboard->owner->name]) }}</flux:text>
+                @if ($dashboard->isTeamDashboard() && $wType === 'tag' && $this->options['tags']->isEmpty())
+                    <flux:text size="sm">{{ __(':team has no tags yet. Team owners and admins create them on the team page.', ['team' => $dashboard->team->name]) }}</flux:text>
+                @elseif ($dashboard->isTeamDashboard() && in_array($wType, ['feed', 'folder', 'search', 'tag', 'watchlist', 'top', 'cves'], true))
+                    <flux:text size="sm">{{ __('Widgets use the feeds, folders, tags and watchlist of :team.', ['team' => $dashboard->team->name]) }}</flux:text>
+                @elseif ($this->role !== 'owner' && in_array($wType, ['feed', 'folder', 'tag', 'starred'], true))
+                    <flux:text size="sm">{{ __('Widgets use :name’s feeds, folders and tags.', ['name' => $dashboard->curatorName()]) }}</flux:text>
                 @endif
 
                 <flux:input wire:model="wTitle" :label="__('Title')" :placeholder="__('Optional')" />
                 <div class="grid grid-cols-2 gap-4">
                     <flux:input type="number" min="3" max="20" wire:model="wLimit" :label="__('Items')" />
-                    <div class="pt-7"><flux:checkbox wire:model="wWide" :label="__('Double width')" /></div>
+                    <flux:select wire:model="wSize" :label="__('Width')" data-test="widget-size-select">
+                        <flux:select.option value="normal">{{ __('Normal') }}</flux:select.option>
+                        <flux:select.option value="wide">{{ __('Wide') }}</flux:select.option>
+                        <flux:select.option value="full">{{ __('Full width') }}</flux:select.option>
+                    </flux:select>
                 </div>
 
                 <div class="flex justify-end gap-2">
@@ -614,15 +724,16 @@ new #[Title('Dashboard')] class extends Component {
                     <flux:button type="submit" variant="primary" data-test="share-submit">{{ __('Share') }}</flux:button>
                 </form>
 
-                @if ($this->ownerTeams->isNotEmpty())
+                @if ($this->adminTeams->isNotEmpty() || $dashboard->isTeamDashboard())
                     <div class="space-y-1">
-                        <flux:select :label="__('Share with a team')" wire:change="shareWithTeam($event.target.value)" data-test="share-team">
-                            <flux:select.option value="" :selected="$dashboard->team_id === null">{{ __('No team') }}</flux:select.option>
-                            @foreach ($this->ownerTeams as $t)
-                                <flux:select.option value="{{ $t->id }}" :selected="$dashboard->team_id === $t->id">{{ $t->name }}</flux:select.option>
+                        <flux:select :label="__('Belongs to')" wire:change="moveTo($event.target.value)" data-test="dashboard-owner-select"
+                            wire:confirm="{{ __('Move this dashboard? Team dashboards use the team’s feeds and are managed by its owners and admins; personal ones use your own feeds.') }}">
+                            <flux:select.option value="" :selected="! $dashboard->isTeamDashboard()">{{ __('You (personal)') }}</flux:select.option>
+                            @foreach ($this->adminTeams as $t)
+                                <flux:select.option value="{{ $t->id }}" :selected="$dashboard->team_id === $t->id">{{ __('Team :team', ['team' => $t->name]) }}</flux:select.option>
                             @endforeach
                         </flux:select>
-                        <flux:text class="text-xs">{{ __('Team owners and admins can edit, members can view.') }}</flux:text>
+                        <flux:text class="text-xs">{{ __('A team dashboard belongs to the team: its owners and admins manage it, members can view it. It stays when you leave.') }}</flux:text>
                     </div>
                 @endif
 

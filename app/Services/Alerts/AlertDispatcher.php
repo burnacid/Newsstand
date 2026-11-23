@@ -98,6 +98,24 @@ class AlertDispatcher
     }
 
     /**
+     * Notify some of a team's own channels (from a team rule).
+     *
+     * @param  array<int, int|string>  $channelIds
+     */
+    public function notifyTeamChannels(Team $team, array $channelIds, AlertMessage $message, string $dedupeKey): int
+    {
+        $sent = 0;
+
+        foreach (AlertChannel::query()->where('team_id', $team->id)->whereKey(array_map('intval', $channelIds))->get() as $channel) {
+            if ($this->queue($channel, $message, $dedupeKey)) {
+                $sent++;
+            }
+        }
+
+        return $sent;
+    }
+
+    /**
      * Channels a user may send to from their rules: their own and those of teams they manage.
      *
      * @return Builder<AlertChannel>

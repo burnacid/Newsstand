@@ -14,7 +14,7 @@
 
                 <nav class="flex items-center gap-2">
                     @auth
-                        <flux:button :href="route('dashboard')" variant="primary" size="sm">{{ __('Open Newsstand') }}</flux:button>
+                        <flux:button :href="route('reader')" variant="primary" size="sm">{{ __('Open Newsstand') }}</flux:button>
                     @else
                         <flux:button :href="route('login')" variant="ghost" size="sm">{{ __('Log in') }}</flux:button>
                         @if (Route::has('register') && \App\Support\Registration::isOpen())

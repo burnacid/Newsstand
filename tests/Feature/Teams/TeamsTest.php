@@ -89,7 +89,7 @@ it('loses access after leaving the team', function () {
 it('shows team folders in the sidebar', function () {
     $this->actingAs($this->member);
 
-    Livewire::test('reader.nav')->assertSee('SecOps · Intel')->assertSee('Team Intel');
+    Livewire::test('reader.nav')->assertSeeInOrder(['SecOps', 'Intel', 'Team Intel']);
 
     $this->actingAs($this->outsider);
     Livewire::test('reader.nav')->assertDontSee('SecOps');
@@ -351,7 +351,7 @@ it('does not let outsiders write notes on stories they cannot read', function ()
 
 // --- Dashboards ---
 
-it('shares a dashboard with a team: admins edit, members view', function () {
+it('moves a dashboard to a team: team admins manage it, members view it', function () {
     $dashboard = $this->owner->dashboards()->create(['name' => 'Briefing']);
     $admin = User::factory()->create();
     app(TeamManager::class)->addMember($this->team, $admin, 'admin');
@@ -359,27 +359,189 @@ it('shares a dashboard with a team: admins edit, members view', function () {
     expect($dashboard->roleOf($this->member))->toBeNull();
 
     $this->actingAs($this->owner);
-    Livewire::test('pages::dashboards.show', ['dashboard' => $dashboard])->call('shareWithTeam', (string) $this->team->id);
+    Livewire::test('pages::dashboards.show', ['dashboard' => $dashboard])->call('moveTo', (string) $this->team->id);
 
     $dashboard->refresh();
     expect($dashboard->team_id)->toBe($this->team->id)
+        ->and($dashboard->roleOf($this->owner))->toBe('owner')
+        ->and($dashboard->roleOf($admin))->toBe('owner')
         ->and($dashboard->roleOf($this->member))->toBe('viewer')
-        ->and($dashboard->roleOf($admin))->toBe('editor')
         ->and($dashboard->roleOf($this->outsider))->toBeNull();
 
     $this->actingAs($this->member);
     Livewire::test('pages::dashboards.index')->assertSee('Briefing');
 });
 
+it('lets a direct share make a team member an editor of a team dashboard', function () {
+    $dashboard = $this->owner->dashboards()->create(['name' => 'Briefing', 'team_id' => $this->team->id]);
+    $dashboard->members()->attach($this->member->id, ['role' => 'editor']);
+
+    expect($dashboard->roleOf($this->member))->toBe('editor');
+});
+
+it('does not let team members move or manage a team dashboard', function () {
+    $dashboard = $this->owner->dashboards()->create(['name' => 'Briefing', 'team_id' => $this->team->id]);
+
+    $this->actingAs($this->member);
+    Livewire::test('pages::dashboards.show', ['dashboard' => $dashboard])
+        ->call('moveTo', '')
+        ->assertForbidden();
+
+    expect($dashboard->fresh()->team_id)->toBe($this->team->id);
+});
+
+it('only moves a dashboard to teams you administer', function () {
+    $dashboard = $this->member->dashboards()->create(['name' => 'Mine']);
+
+    $this->actingAs($this->member);
+    Livewire::test('pages::dashboards.show', ['dashboard' => $dashboard])->call('moveTo', (string) $this->team->id);
+
+    expect($dashboard->fresh()->team_id)->toBeNull();
+});
+
+it('makes a team dashboard personal for the admin who takes it out of the team', function () {
+    $creator = User::factory()->create();
+    app(TeamManager::class)->addMember($this->team, $creator, 'admin');
+    $dashboard = $creator->dashboards()->create(['name' => 'Briefing', 'team_id' => $this->team->id]);
+
+    $this->actingAs($this->owner);
+    Livewire::test('pages::dashboards.show', ['dashboard' => $dashboard])->call('moveTo', '');
+
+    $dashboard->refresh();
+    expect($dashboard->team_id)->toBeNull()
+        ->and($dashboard->owner_id)->toBe($this->owner->id)
+        ->and($dashboard->roleOf($creator))->toBeNull();
+});
+
+it('keeps a team dashboard when its creator leaves the team or is deleted', function () {
+    $creator = User::factory()->create();
+    app(TeamManager::class)->addMember($this->team, $creator, 'admin');
+    $dashboard = $creator->dashboards()->create(['name' => 'Team board', 'team_id' => $this->team->id]);
+    $personal = $creator->dashboards()->create(['name' => 'Own board']);
+
+    app(TeamManager::class)->leave($this->team, $creator);
+    expect($dashboard->fresh()->roleOf($creator))->toBeNull()
+        ->and($dashboard->fresh()->roleOf($this->member))->toBe('viewer');
+
+    $creator->delete();
+
+    expect($dashboard->fresh())->not->toBeNull()
+        ->and($dashboard->fresh()->owner_id)->toBeNull()
+        ->and($dashboard->fresh()->roleOf($this->owner))->toBe('owner')
+        ->and(Dashboard::find($personal->id))->toBeNull();
+
+    $this->actingAs($this->member)->get(route('dashboards.show', $dashboard))->assertOk()->assertSee('Team board');
+});
+
+it('fills team dashboards from the team\'s feeds, not the creator\'s', function () {
+    $personalFeed = Feed::factory()->create(['title' => 'Owner private feed']);
+    $this->owner->subscriptions()->create(['feed_id' => $personalFeed->id]);
+    $private = teamStory($personalFeed, 'Private ransomware story');
+    $teamRansomware = teamStory($this->feed, 'Team ransomware story');
+
+    $dashboard = $this->owner->dashboards()->create(['name' => 'Team board', 'team_id' => $this->team->id]);
+    $dashboard->widgets()->create(['type' => 'search', 'config' => ['query' => 'ransomware'], 'position' => 0]);
+    $dashboard->widgets()->create(['type' => 'top', 'config' => [], 'position' => 1]);
+
+    $this->actingAs($this->member);
+    Livewire::test('pages::dashboards.show', ['dashboard' => $dashboard])
+        ->assertSee('Team ransomware story')
+        ->assertSee('Fortinet patches FortiOS')
+        ->assertDontSee('Private ransomware story')
+        ->call('open', $private->id)
+        ->assertSet('openEntryId', null)
+        ->call('open', $teamRansomware->id)
+        ->assertSet('openEntryId', $teamRansomware->id);
+});
+
+it('offers no personal tags or starred widgets on team dashboards', function () {
+    $dashboard = $this->owner->dashboards()->create(['name' => 'Team board', 'team_id' => $this->team->id]);
+    $tag = $this->owner->tags()->create(['name' => 'private']);
+
+    $this->actingAs($this->owner);
+    Livewire::test('pages::dashboards.show', ['dashboard' => $dashboard])
+        ->set('wType', 'tag')
+        ->set('wTagId', (string) $tag->id)
+        ->call('saveWidget')
+        ->assertHasErrors('wTagId')
+        ->set('wType', 'starred')
+        ->call('saveWidget')
+        ->assertHasErrors('wType');
+
+    expect($dashboard->widgets()->count())->toBe(0);
+});
+
+it('lets team admins create a team dashboard', function () {
+    $this->actingAs($this->owner);
+
+    Livewire::test('pages::dashboards.index')
+        ->set('name', 'Team board')
+        ->set('template', 'blank')
+        ->set('teamId', (string) $this->team->id)
+        ->call('create')
+        ->assertHasNoErrors();
+
+    $dashboard = Dashboard::firstWhere('name', 'Team board');
+    expect($dashboard->team_id)->toBe($this->team->id)
+        ->and($dashboard->roleOf($this->member))->toBe('viewer');
+});
+
+it('does not let team members or outsiders create a team dashboard', function () {
+    foreach ([$this->member, $this->outsider] as $user) {
+        $this->actingAs($user);
+
+        Livewire::test('pages::dashboards.index')
+            ->set('name', 'Sneaky')
+            ->set('teamId', (string) $this->team->id)
+            ->call('create')
+            ->assertHasErrors('teamId');
+    }
+
+    expect(Dashboard::count())->toBe(0);
+});
+
+it('lists team dashboards in the sidebar under the team, for members only', function () {
+    $dashboard = $this->owner->dashboards()->create(['name' => 'Morning briefing', 'team_id' => $this->team->id]);
+    $this->owner->dashboards()->create(['name' => 'Private board']);
+
+    $this->actingAs($this->member);
+    Livewire::test('reader.nav')
+        ->assertSeeInOrder(['SecOps', 'Morning briefing', 'Intel'])
+        ->assertSee(route('dashboards.show', $dashboard))
+        ->assertDontSee('Private board');
+
+    $this->actingAs($this->outsider);
+    Livewire::test('reader.nav')->assertDontSee('Morning briefing');
+});
+
+it('lists a team dashboard only under the team, not also as a personal one', function () {
+    $dashboard = $this->owner->dashboards()->create(['name' => 'Morning briefing', 'team_id' => $this->team->id]);
+    $dashboard->members()->attach($this->member->id, ['role' => 'editor']);
+
+    $this->actingAs($this->member);
+    $html = Livewire::test('reader.nav')->html();
+
+    // Count links (Flux repeats the label in a tooltip for the collapsed sidebar).
+    expect(substr_count($html, 'href="'.route('dashboards.show', $dashboard).'"'))->toBe(1);
+});
+
+it('shows a team in the sidebar when it only has dashboards', function () {
+    $team = app(TeamManager::class)->create($this->owner, 'Red Team');
+    $this->owner->dashboards()->create(['name' => 'Engagements', 'team_id' => $team->id]);
+
+    $this->actingAs($this->owner);
+    Livewire::test('reader.nav')->assertSeeInOrder(['Red Team', 'Engagements']);
+});
+
 it('removes team-owned things when the team is deleted', function () {
-    $dashboard = $this->owner->dashboards()->create(['name' => 'Briefing']);
-    $dashboard->forceFill(['team_id' => $this->team->id])->save();
+    $dashboard = $this->owner->dashboards()->create(['name' => 'Briefing', 'team_id' => $this->team->id]);
+    $personal = $this->owner->dashboards()->create(['name' => 'Personal']);
     $this->actingAs($this->owner);
 
     Livewire::test('pages::teams.show', ['team' => $this->team])->call('deleteTeam')->assertRedirect(route('teams.index'));
 
     expect(Team::count())->toBe(0)
         ->and(Subscription::whereNotNull('team_id')->count())->toBe(0)
-        ->and($dashboard->fresh()->team_id)->toBeNull()
-        ->and(Dashboard::count())->toBe(1);
+        ->and($dashboard->fresh())->toBeNull()
+        ->and(Dashboard::pluck('id')->all())->toBe([$personal->id]);
 });
