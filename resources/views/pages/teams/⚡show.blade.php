@@ -7,6 +7,7 @@ use App\Models\Subscription;
 use App\Models\Team;
 use App\Models\User;
 use App\Services\Feeds\FeedDiscovery;
+use App\Services\Feeds\FeedRefresher;
 use App\Services\Teams\TeamManager;
 use Flux\Flux;
 use Illuminate\Support\Collection;
@@ -34,6 +35,12 @@ new #[Title('Team')] class extends Component {
 
     /** @var list<array{url: string, title: string|null}> */
     public array $candidates = [];
+
+    // Edit a shared feed
+    public ?int $editingId = null;
+    public string $editTitle = '';
+    public string $editFolderId = '';
+    public bool $editFullText = false;
 
     // Settings
     public string $teamName = '';
@@ -283,6 +290,66 @@ new #[Title('Team')] class extends Component {
         $this->dispatch('unread-changed');
     }
 
+    public function refreshFeed(int $subscriptionId, FeedRefresher $refresher): void
+    {
+        $this->authorizeAdmin();
+
+        $subscription = $this->findTeamSubscription($subscriptionId);
+        $refresher->refresh($subscription->feed);
+
+        unset($this->folders);
+        $this->dispatch('unread-changed');
+
+        $subscription->feed->last_error
+            ? Flux::toast(variant: 'danger', text: $subscription->feed->last_error)
+            : Flux::toast(variant: 'success', text: __('Feed refreshed.'));
+    }
+
+    public function editFeed(int $subscriptionId): void
+    {
+        $this->authorizeAdmin();
+
+        $subscription = $this->findTeamSubscription($subscriptionId);
+
+        $this->editingId = $subscription->id;
+        $this->editTitle = $subscription->custom_title ?? '';
+        $this->editFolderId = (string) $subscription->folder_id;
+        $this->editFullText = $subscription->feed->full_text;
+        $this->resetErrorBag();
+
+        Flux::modal('edit-team-feed')->show();
+    }
+
+    public function saveFeed(): void
+    {
+        $this->authorizeAdmin();
+        $this->validate([
+            'editTitle' => ['nullable', 'string', 'max:250'],
+            // Team feeds always live in one of the team's folders.
+            'editFolderId' => ['required', Rule::exists('folders', 'id')->where('team_id', $this->teamId)],
+        ]);
+
+        $subscription = $this->findTeamSubscription($this->editingId);
+        $folderId = (int) $this->editFolderId;
+
+        $subscription->update([
+            'custom_title' => $this->editTitle !== '' ? $this->editTitle : null,
+            'folder_id' => $folderId,
+            // Moving to another folder puts the feed at the end of it.
+            'position' => $subscription->folder_id === $folderId
+                ? $subscription->position
+                : (int) $this->team->subscriptions()->where('folder_id', $folderId)->max('position') + 1,
+        ]);
+
+        // Full-text extraction is a property of the (shared) feed.
+        $subscription->feed->update(['full_text' => $this->editFullText]);
+
+        $this->reset('editingId', 'editTitle', 'editFolderId', 'editFullText');
+        unset($this->folders);
+        $this->dispatch('unread-changed');
+        Flux::modal('edit-team-feed')->close();
+    }
+
     // --- Settings ---
 
     public function rename(): void
@@ -315,6 +382,11 @@ new #[Title('Team')] class extends Component {
         $this->dispatch('unread-changed');
 
         Flux::toast(variant: 'success', text: __('Added :title for everyone in the team.', ['title' => $subscription->displayTitle()]));
+    }
+
+    private function findTeamSubscription(?int $id): Subscription
+    {
+        return $this->team->subscriptions()->with('feed')->findOrFail($id);
     }
 
     private function authorizeAdmin(): void
@@ -404,13 +476,31 @@ new #[Title('Team')] class extends Component {
                     </div>
                     <div class="mt-1 ms-6 space-y-0.5">
                         @forelse ($folder->subscriptions as $subscription)
-                            <div class="flex items-center gap-2 text-sm" wire:key="team-sub-{{ $subscription->id }}">
-                                <span class="min-w-0 flex-1 truncate">{{ $subscription->displayTitle() }}
-                                    @if ($subscription->feed->last_error)<span class="text-xs text-red-600 dark:text-red-400">· {{ __('error') }}</span>@endif
-                                </span>
+                            @php($feed = $subscription->feed)
+                            <div class="flex items-center gap-2 text-sm" wire:key="team-sub-{{ $subscription->id }}" data-test="team-sub-{{ $subscription->id }}">
+                                <span class="min-w-0 flex-1 truncate">{{ $subscription->displayTitle() }}</span>
+                                <span class="hidden shrink-0 text-xs text-zinc-500 sm:inline">{{ $feed->last_fetched_at?->diffForHumans() ?? __('Pending') }}</span>
+                                @if ($feed->last_fetched_at === null)
+                                    <flux:badge size="sm" color="zinc">{{ __('Queued') }}</flux:badge>
+                                @elseif (! $feed->isHealthy())
+                                    <flux:tooltip :content="$feed->last_error">
+                                        <flux:badge size="sm" color="red">{{ trans_choice(':count error|:count errors', $feed->error_count) }}</flux:badge>
+                                    </flux:tooltip>
+                                @endif
                                 @if ($this->isAdmin)
-                                    <flux:button size="xs" variant="subtle" icon="x-mark" wire:click="removeFeed({{ $subscription->id }})"
-                                        wire:confirm="{{ __('Remove :feed for everyone in the team?', ['feed' => $subscription->displayTitle()]) }}" :tooltip="__('Remove')" />
+                                    <flux:dropdown position="bottom" align="end">
+                                        <flux:button size="xs" variant="subtle" icon="ellipsis-horizontal" data-test="team-sub-menu" />
+                                        <flux:menu>
+                                            <flux:menu.item icon="arrow-path" wire:click="refreshFeed({{ $subscription->id }})" data-test="team-sub-refresh">{{ __('Refresh now') }}</flux:menu.item>
+                                            <flux:menu.item icon="pencil-square" wire:click="editFeed({{ $subscription->id }})" data-test="team-sub-edit">{{ __('Edit') }}</flux:menu.item>
+                                            @if ($feed->site_url)
+                                                <flux:menu.item icon="arrow-top-right-on-square" :href="$feed->site_url" target="_blank">{{ __('Visit site') }}</flux:menu.item>
+                                            @endif
+                                            <flux:menu.separator />
+                                            <flux:menu.item icon="trash" variant="danger" wire:click="removeFeed({{ $subscription->id }})"
+                                                wire:confirm="{{ __('Remove :feed for everyone in the team?', ['feed' => $subscription->displayTitle()]) }}">{{ __('Remove') }}</flux:menu.item>
+                                        </flux:menu>
+                                    </flux:dropdown>
                                 @endif
                             </div>
                         @empty
@@ -423,6 +513,27 @@ new #[Title('Team')] class extends Component {
             @endforelse
         </div>
     </flux:card>
+
+    @if ($this->isAdmin)
+        <flux:modal name="edit-team-feed" class="md:w-96">
+            <form wire:submit="saveFeed" class="space-y-5">
+                <flux:heading size="lg">{{ __('Edit shared feed') }}</flux:heading>
+                <flux:input wire:model="editTitle" :label="__('Custom title')" :placeholder="__('Leave empty to use the feed title')" />
+                <flux:select wire:model="editFolderId" :label="__('Team folder')">
+                    @foreach ($this->folders as $folder)
+                        <flux:select.option value="{{ $folder->id }}">{{ $folder->name }}</flux:select.option>
+                    @endforeach
+                </flux:select>
+                <flux:error name="editFolderId" />
+                <flux:switch wire:model="editFullText" :label="__('Fetch full article text')"
+                    :description="__('For feeds that only publish a summary. Applies to everyone subscribed to this feed.')" />
+                <div class="flex justify-end gap-2">
+                    <flux:modal.close><flux:button variant="ghost">{{ __('Cancel') }}</flux:button></flux:modal.close>
+                    <flux:button type="submit" variant="primary" data-test="team-sub-save">{{ __('Save') }}</flux:button>
+                </div>
+            </form>
+        </flux:modal>
+    @endif
 
     {{-- Members --}}
     <flux:card class="space-y-5">

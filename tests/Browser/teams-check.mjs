@@ -19,8 +19,9 @@ await page.fill('input[name=password]', 'playwright-pass');
 await page.locator('button[type=submit]').first().click();
 await page.waitForURL(/\/(reader|dashboards)/, { timeout: 45000, waitUntil: 'commit' });
 
-// Create a team from the sidebar link.
-await page.locator('[data-test=teams-link]').first().click();
+// Create a team from the link in the user menu.
+await page.locator('[data-test=sidebar-menu-button]').click();
+await page.locator('[data-test=teams-link]:visible').click();
 await page.waitForURL(/\/teams$/);
 await page.locator('input[data-test=team-name], [data-test=team-name] input').first().fill('PW check team');
 await page.locator('[data-test=create-team]').click();

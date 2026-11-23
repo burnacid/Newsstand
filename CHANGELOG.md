@@ -12,9 +12,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   button at the top of the list. Clicking it loads them; the list never shifts on its own while you read. Only
   counts stories in the current view (feed, folder, filters), skips checks while the tab is in the background, and
   updates the sidebar unread counts. Not available for Top stories.
+- **Manage shared feeds** on the team page: team owners and admins can now refresh a team feed right away and edit
+  it (custom title, move to another team folder, full-text extraction), like personal feeds on Manage feeds. Each
+  shared feed also shows when it was last fetched and its errors.
 
 ### Changed
 
+- **Tidier sidebar**: Watchlist, Rules, Teams, Manage feeds and Administration moved to the user menu (your name at
+  the bottom of the sidebar, or the avatar top right on mobile). The sidebar keeps your feeds, Dashboards and
+  Vulnerabilities.
 - **Smarter refresh interval** for feeds that only post during office hours. The interval is now based on the
   typical (median) gap between recent posts instead of the average, so night and weekend gaps no longer slow down
   daytime refreshes (most noticeable on Monday mornings). Posts published within a minute of each other count as
