@@ -217,9 +217,8 @@ export default () => ({
             '/': () => this.$refs.search?.querySelector('input')?.focus() ?? this.$refs.search?.focus(),
             Escape: () => {
                 const id = this.$wire.entryId;
-                this.$wire.closeEntry();
-                // Back to the story's row, so keyboard users continue where they were.
-                this.$root.querySelector(`[data-entry-id="${id}"] button`)?.focus({ preventScroll: true });
+                // Back to the story's row (redrawn on close), so keyboard users continue where they were.
+                this.$wire.closeEntry().then(() => this.focusRow(id));
             },
             '?': () => this.$flux.modal('shortcuts').show(),
         };
@@ -250,13 +249,19 @@ export default () => ({
 
         const el = items[index];
         el.scrollIntoView({ block: 'nearest' });
-        // Focus follows the selection (screen readers announce the story; Tab continues from here).
-        el.querySelector('button')?.focus({ preventScroll: true });
         this.$refs.pane?.scrollTo({ top: 0 });
-        this.$wire.select(Number(el.dataset.entryId));
+        const id = Number(el.dataset.entryId);
+        this.focusRow(id);
+        // The selected row is redrawn by the server, so focus it again once that is done.
+        this.$wire.select(id).then(() => this.focusRow(id));
 
         // Prefetch more when getting close to the end of the list.
         if (index >= items.length - 5) this.$wire.loadMore();
+    },
+
+    /** Focus a list row's title button: focus follows the selection, so screen readers announce it. */
+    focusRow(id) {
+        this.$root.querySelector(`[data-entry-id="${id}"] button`)?.focus({ preventScroll: true });
     },
 
     openTagMenu() {

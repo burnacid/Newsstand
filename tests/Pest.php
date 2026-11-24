@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Livewire\Features\SupportTesting\Testable;
 use Tests\TestCase;
 
 /*
@@ -17,6 +18,19 @@ use Tests\TestCase;
 pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
     ->in('Feature');
+
+/**
+ * Titles the reader lists right now. Rows are child components, and after an update Livewire's
+ * test HTML only holds placeholders for rows that did not change, so check the data instead.
+ *
+ * @return list<string|null>
+ */
+function listedTitles(Testable $reader): array
+{
+    $component = $reader->instance();
+
+    return $component->entries->take($component->limit)->pluck('title')->values()->all();
+}
 
 function feedFixture(string $name): string
 {

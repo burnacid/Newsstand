@@ -27,6 +27,7 @@ class EntryQuery
      *
      * @param  list<int>  $keepIds  entries to keep in an unread-only list even after they're read
      * @param  string|null  $period  one of self::PERIODS keys, or null for any time
+     * @param  bool  $oldestFirst  oldest stories first instead of newest
      * @return Builder<Entry>
      */
     public function for(
@@ -36,6 +37,7 @@ class EntryQuery
         ?string $search = null,
         array $keepIds = [],
         ?string $period = null,
+        bool $oldestFirst = false,
     ): Builder {
         $query = $this->base($user);
 
@@ -78,9 +80,11 @@ class EntryQuery
             $this->applySearch($query, trim($search));
         }
 
+        $direction = $oldestFirst ? 'asc' : 'desc';
+
         return $query
-            ->orderByDesc('entries.published_at')
-            ->orderByDesc('entries.id');
+            ->orderBy('entries.published_at', $direction)
+            ->orderBy('entries.id', $direction);
     }
 
     /**

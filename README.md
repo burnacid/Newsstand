@@ -7,12 +7,30 @@ dashboards with colleagues or publish them as a read-only page.
 
 Built with Laravel 13, Livewire 4 and Flux. Runs on PostgreSQL (recommended), MySQL/MariaDB or SQLite.
 
+![The reader: stories with CVE, exploitation and watchlist badges, and the open story](docs/screenshots/reader.png)
+
+## Screenshots
+
+The screenshots use sample data with fictional outlets, vendors and CVEs (see [Sample data](#sample-data)).
+
+| | |
+|---|---|
+| ![River view: full story previews to scroll through](docs/screenshots/river.png) | ![A dashboard with top stories, vulnerabilities, watchlist and tag widgets](docs/screenshots/dashboard.png) |
+| **River**: scroll through previews; stories are marked read as they pass | **Dashboards**: widgets for top stories, CVEs, your products and tags |
+| ![Vulnerabilities page with CVSS scores and exploitation status](docs/screenshots/security.png) | ![A CVE page with CISA and NVD details and the stories about it](docs/screenshots/cve.png) |
+| **Vulnerabilities** mentioned in your feeds, with NVD scores and CISA KEV status | **CVE page**: exploitation, severity, affected products and every story about it |
+| ![Rules that highlight and tag stories](docs/screenshots/rules.png) | ![The reader in dark mode](docs/screenshots/reader-dark.png) |
+| **Rules**: highlight, tag, star or mute what matches | **Dark mode** |
+
+<p align="center"><img src="docs/screenshots/mobile.png" width="300" alt="The reader on a phone"></p>
+
 ## Features
 
 - **Feeds**: subscribe by site or feed URL (auto-discovery), folders with drag and drop, OPML import/export,
   per-feed health, full-text fetching for summary-only feeds, adaptive polling with backoff.
 - **Reader**: list, card and river views; keyboard shortcuts (`?` shows them); star, read later, tags;
-  full-text search (PostgreSQL: phrases, `-exclude`, `OR`); time filters.
+  full-text search (PostgreSQL: phrases, `-exclude`, `OR`) with saved searches in the sidebar; time filters;
+  newest or oldest first; mark everything, or only what is older than a day or a week, as read.
 - **Security signals**: CVEs extracted from every story, CVSS scores from NVD, exploitation status from
   CISA's Known Exploited Vulnerabilities catalog; a Vulnerabilities page; Top stories ranked by coverage and severity.
 - **Watchlist**: the vendors and products you run; stories and CVEs that affect them are flagged, with a CVE page
@@ -73,6 +91,20 @@ The test suite refuses to run against a non-test database. If it complains, you 
 run `php artisan optimize:clear`.
 
 Browser checks (Playwright, against a running dev server) live in `tests/Browser`; see its README.
+
+### Sample data
+
+`DemoSeeder` fills an empty database with one user, six fictional feeds, stories, CVEs, a watchlist item, rules,
+tags and a dashboard, all processed the way real stories are (CVE extraction, story groups, rules). It refuses to
+run on a database that has other users. Use a throwaway database, never your own:
+
+```bash
+touch /tmp/newsstand-demo.sqlite
+DB_DATABASE=/tmp/newsstand-demo.sqlite php artisan migrate --force
+DB_DATABASE=/tmp/newsstand-demo.sqlite php artisan db:seed --class=DemoSeeder --force
+DB_DATABASE=/tmp/newsstand-demo.sqlite php artisan serve --port=8011   # sign in as demo@newsstand.test / demo-password
+node tests/Browser/screenshots.mjs http://127.0.0.1:8011               # refreshes docs/screenshots
+```
 
 ## Production
 

@@ -6,6 +6,33 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-11-24
+
+### Added
+
+- **Saved searches**: while searching in the reader, "Save search" keeps the search (and the feed, folder or tag it
+  runs in) in a new "Saved searches" group in the sidebar. The same button removes it again.
+- **Mark older stories as read**: the reader's mark-as-read button is now a menu: mark everything, or only stories
+  older than 24 hours or 7 days. It applies to what the reader shows, so open a feed or folder to clear just that.
+  Shift+A still marks everything.
+- **Sort order**: newest or oldest first, from the new button next to the layout switch. Kept for the session.
+- **Sample data**: `php artisan db:seed --class=DemoSeeder` fills an empty database with fictional feeds, stories,
+  CVEs, rules and a dashboard (refuses to run when other users exist). The README screenshots use it.
+- README screenshots of the reader, river, dashboards, vulnerabilities, a CVE page, rules, dark mode and a phone.
+
+### Changed
+
+- **Faster reader**: each story in the list, cards and river is now its own component. Starring, opening, reading
+  or tagging a story redraws only the rows that changed instead of the whole list, which matters most in the river
+  where every row holds a full article. Loading more stories sends only the new ones. Tagging from a river story
+  updates just that story and keeps the tag menu open.
+- Keyboard focus is restored to the story's row after the reader redraws it (j/k, Escape).
+
+### Tests
+
+- New browser check `tests/Browser/reader-rows-check.mjs` (rows, focus, sort, mark-read menu, saved searches,
+  river tag menu), and `tests/Browser/screenshots.mjs` for the README screenshots.
+
 ## [1.9.0] - 2026-11-24
 
 ### Added

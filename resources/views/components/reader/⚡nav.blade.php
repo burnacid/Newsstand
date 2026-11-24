@@ -24,8 +24,13 @@ use Livewire\Component;
 new class extends Component {
     public string $current = '';
 
+    /** The reader's current search, to highlight a matching saved search. */
+    public string $search = '';
+
     public function mount(): void
     {
+        $this->search = request()->routeIs('reader') ? trim((string) request()->query('q', '')) : '';
+
         $dashboard = request()->route('dashboard');
 
         $this->current = match (true) {
@@ -51,6 +56,24 @@ new class extends Component {
     public function watching(): bool
     {
         return WatchlistMatcher::itemsFor(Auth::user())->exists();
+    }
+
+    #[On('saved-searches-changed')]
+    public function refreshSavedSearches(): void
+    {
+        unset($this->savedSearches);
+    }
+
+    #[On('reader-search-changed')]
+    public function searchChanged(string $search): void
+    {
+        $this->search = trim($search);
+    }
+
+    #[Computed]
+    public function savedSearches(): Collection
+    {
+        return Auth::user()->savedSearches()->orderBy('name')->get();
     }
 
     #[On('tags-changed')]
@@ -236,6 +259,18 @@ new class extends Component {
             @endforeach
         </flux:sidebar.group>
     @endforeach
+
+    @if ($this->savedSearches->isNotEmpty())
+        <flux:sidebar.group expandable :heading="__('Saved searches')" class="mt-3 grid" data-test="nav-saved-searches">
+            @foreach ($this->savedSearches as $saved)
+                <flux:sidebar.item icon="magnifying-glass" :href="$saved->url()" wire:navigate wire:key="nav-search-{{ $saved->id }}"
+                    :current="$search !== '' && $search === $saved->query && $current === \App\Services\Reader\ReaderSource::parse($saved->source)->key()"
+                    data-test="nav-saved-search">
+                    {{ $saved->name }}
+                </flux:sidebar.item>
+            @endforeach
+        </flux:sidebar.group>
+    @endif
 
     @if ($this->tags->isNotEmpty())
         <flux:sidebar.group expandable :heading="__('Tags')" class="mt-3 grid">

@@ -267,9 +267,9 @@ it('mutes stories so they leave feed listings', function () {
 
     app(RuleEvaluator::class)->evaluateEntries([$muted->id]);
 
-    Livewire::test('pages::reader.index')->set('show', 'all')
-        ->assertSee('Kernel patch')
-        ->assertDontSee('Bitcoin price swings');
+    $reader = Livewire::test('pages::reader.index')->set('show', 'all');
+
+    expect(listedTitles($reader))->toContain('Kernel patch')->not->toContain('Bitcoin price swings');
 });
 
 it('only applies rules for subscribers of the feed', function () {

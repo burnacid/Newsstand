@@ -23,7 +23,11 @@ node tests/Browser/pwa-check.mjs           # manifest, service worker, Install a
 node tests/Browser/push-check.mjs          # push on/off for this device, a push channel (server needs OPENSSL_CONF on Windows)
 node tests/Browser/tag-menu-check.mjs      # tag menu: toggle + Escape closes only the menu; Escape then closes the story
 node tests/Browser/reader-teardown-check.mjs  # leave the reader mid-load many times: no JS errors; new-stories bar works
+node tests/Browser/reader-rows-check.mjs     # story rows, keyboard focus, sort, mark-read menu, saved searches, river tag menu
 ```
 
 They use the installed Microsoft Edge. To use Playwright's own Chromium instead:
 `npx playwright install chromium` and set `PW_CHANNEL=chromium`.
+
+`screenshots.mjs` takes the README screenshots; run it only against the sample data (see the main README,
+"Sample data").

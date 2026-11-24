@@ -2,6 +2,7 @@
 
 use App\Actions\Reader\TagEntries;
 use App\Models\Entry;
+use App\Models\SavedSearch;
 use App\Services\Reader\EntryQuery;
 use App\Services\Reader\EntryStates;
 use App\Services\Reader\ReaderSource;
@@ -40,6 +41,10 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
 
     #[Session]
     public string $layout = 'list';
+
+    /** 'newest' or 'oldest' first. Kept for the session, like the layout. */
+    #[Session]
+    public string $sort = 'newest';
 
     public int $limit = 0;
 
@@ -242,18 +247,62 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
         Flux::toast(text: __('Tagged #:tag.', ['tag' => $tag->name]), duration: 1500);
     }
 
-    public function markAllRead(): void
+    /** Mark everything here read, or only what is older than a day or a week ($olderThan 'day' / 'week'). */
+    public function markAllRead(?string $olderThan = null): void
     {
-        $count = app(EntryStates::class)->markAllRead(
-            Auth::user(),
-            app(EntryQuery::class)->for(Auth::user(), $this->parsedSource(), false, $this->search, [], $this->period ?: null),
-        );
+        $query = app(EntryQuery::class)->for(Auth::user(), $this->parsedSource(), false, $this->search, [], $this->period ?: null);
+
+        if (isset(EntryQuery::PERIODS[$olderThan])) {
+            $query->where('entries.published_at', '<', now()->subHours(EntryQuery::PERIODS[$olderThan]));
+        }
+
+        $count = app(EntryStates::class)->markAllRead(Auth::user(), $query);
 
         $this->keep = [];
         $this->dispatch('unread-changed');
         unset($this->entries, $this->entry);
 
         Flux::toast(variant: 'success', text: trans_choice('{0} Nothing to mark.|{1} Marked 1 story as read.|[2,*] Marked :count stories as read.', $count));
+    }
+
+    public function toggleSort(): void
+    {
+        $this->sort = $this->sort === 'oldest' ? 'newest' : 'oldest';
+        $this->limit = config('newsstand.reader_page_size');
+        $this->keep = [];
+    }
+
+    /** The saved search matching the current source and search, if any. */
+    #[Computed]
+    public function savedSearch(): ?SavedSearch
+    {
+        return $this->isSearching()
+            ? Auth::user()->savedSearches()->where('source', $this->parsedSource()->key())->where('query', trim($this->search))->first()
+            : null;
+    }
+
+    /** Keep the current search in the sidebar, or take it out again. */
+    public function toggleSavedSearch(): void
+    {
+        if (! $this->isSearching()) {
+            return;
+        }
+
+        if ($saved = $this->savedSearch) {
+            $saved->delete();
+            Flux::toast(text: __('Removed from saved searches.'), duration: 1500);
+        } else {
+            $query = mb_substr(trim($this->search), 0, 250);
+            Auth::user()->savedSearches()->create([
+                'name' => mb_substr($query, 0, 100),
+                'source' => $this->parsedSource()->key(),
+                'query' => $query,
+            ]);
+            Flux::toast(text: __('Saved. It is listed in the sidebar.'), duration: 2000);
+        }
+
+        unset($this->savedSearch);
+        $this->dispatch('saved-searches-changed');
     }
 
     public function loadMore(): void
@@ -361,6 +410,10 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
 
     public function updated(string $property): void
     {
+        if ($property === 'search') {
+            $this->dispatch('reader-search-changed', search: $this->search);
+        }
+
         if (in_array($property, ['show', 'search', 'period'], true)) {
             $this->limit = config('newsstand.reader_page_size');
             $this->keep = [];
@@ -369,6 +422,26 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
     }
 
     // --- Helpers ---
+
+    /**
+     * A row's key covers everything the row shows, so a re-render only redraws rows whose
+     * state changed (read, starred, tags, selection, ...); unchanged rows are skipped.
+     */
+    public function rowKey(Entry $item): string
+    {
+        $tags = collect($this->entryTags[$item->id] ?? [])->map(fn ($t) => $t->id.':'.$t->name.':'.$t->color)->implode(',');
+        $signals = $this->signals[$item->id] ?? [];
+
+        return 'row-'.$item->id.'-'.md5(json_encode([
+            $this->layout, $item->id === $this->entryId, in_array($item->id, $this->expanded, true), $this->isTop(),
+            $item->isRead(), $item->isStarred(), $item->isSavedForLater(), $item->highlight(), $item->top_sources ?? null,
+            (string) $item->updated_at, $tags,
+            collect($signals['cves'] ?? [])->map(fn ($c) => $c->cve_id.$c->cvss_score.(int) $c->in_kev)->implode(','),
+            $signals['sources'] ?? 1, collect($signals['watch'] ?? [])->implode(','),
+            // River rows hold the tag menu, which lists all of the user's tags.
+            $this->layout === 'river' ? $this->userTags->map(fn ($t) => $t->id.':'.$t->name)->implode(',') : '',
+        ]));
+    }
 
     /**
      * Read stories that stay listed until you leave. Capped: the list travels with
@@ -405,7 +478,7 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
     /** @return Builder<Entry> */
     private function query(): Builder
     {
-        return app(EntryQuery::class)->for(Auth::user(), $this->parsedSource(), $this->unreadOnly(), $this->search, $this->keep, $this->period ?: null);
+        return app(EntryQuery::class)->for(Auth::user(), $this->parsedSource(), $this->unreadOnly(), $this->search, $this->keep, $this->period ?: null, $this->sort === 'oldest');
     }
 
     private function findEntry(?int $id): ?Entry
@@ -428,10 +501,22 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
                 <flux:heading size="xl" class="truncate">{{ $this->heading }}</flux:heading>
 
                 <div class="flex shrink-0 items-center gap-1">
-                    <flux:tooltip :content="__('Mark all as read') . ' (Shift+A)'">
-                        <flux:button size="sm" variant="ghost" icon="check-circle" wire:click="markAllRead" :aria-label="__('Mark all as read')"
-                            wire:confirm="{{ __('Mark every story here as read?') }}" data-test="mark-all-read" />
-                    </flux:tooltip>
+                    {{-- A dropdown trigger gets a plain title, never a Flux tooltip (popover clash on close). --}}
+                    <flux:dropdown position="bottom" align="end">
+                        <flux:button size="sm" variant="ghost" icon="check-circle" data-test="mark-read-menu"
+                            :aria-label="__('Mark as read')" :title="__('Mark as read') . ' (Shift+A: all)'" />
+                        <flux:menu>
+                            <flux:menu.item icon="check-circle" wire:click="markAllRead"
+                                wire:confirm="{{ __('Mark every story here as read?') }}" data-test="mark-all-read">{{ __('Mark all as read') }}</flux:menu.item>
+                            <flux:menu.item icon="clock" wire:click="markAllRead('day')" data-test="mark-older-day">{{ __('Older than 24 hours') }}</flux:menu.item>
+                            <flux:menu.item icon="calendar" wire:click="markAllRead('week')" data-test="mark-older-week">{{ __('Older than 7 days') }}</flux:menu.item>
+                        </flux:menu>
+                    </flux:dropdown>
+                    @unless ($this->isTop())
+                        <flux:button size="sm" variant="ghost" :icon="$sort === 'oldest' ? 'bars-arrow-up' : 'bars-arrow-down'" wire:click="toggleSort"
+                            data-test="sort-toggle" aria-pressed="{{ $sort === 'oldest' ? 'true' : 'false' }}"
+                            :aria-label="__('Oldest first')" :tooltip="$sort === 'oldest' ? __('Oldest first (click for newest first)') : __('Newest first (click for oldest first)')" />
+                    @endunless
                     <div class="flex items-center rounded-lg bg-zinc-100 p-0.5 dark:bg-zinc-800">
                         @foreach (['list' => ['bars-3', __('List')], 'cards' => ['squares-2x2', __('Cards')], 'river' => ['newspaper', __('River: scroll through stories')]] as $mode => [$icon, $label])
                             <flux:tooltip :content="$label">
@@ -479,9 +564,12 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
             </div>
 
             @if ($this->isSearching())
-                <flux:text size="sm" class="flex items-center gap-1.5">
+                <flux:text size="sm" class="flex flex-wrap items-center gap-1.5">
                     <flux:icon.magnifying-glass variant="micro" />
                     {{ __('Searching all stories, read and unread.') }}
+                    <flux:button size="xs" variant="ghost" :icon="$this->savedSearch ? 'bookmark-slash' : 'bookmark-square'" wire:click="toggleSavedSearch" data-test="save-search">
+                        {{ $this->savedSearch ? __('Remove saved search') : __('Save search') }}
+                    </flux:button>
                     @if (\App\Services\Reader\EntryQuery::usesFullTextIndex())
                         <flux:tooltip :content="__('Use “quotes” for phrases, -word to exclude, OR for alternatives.')">
                             <flux:icon.information-circle variant="micro" class="cursor-help" />
@@ -499,107 +587,13 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
                     <span x-text="(n => n >= 100 ? @js(__('99+ new stories')) : (n === 1 ? @js(__('1 new story')) : @js(__(':count new stories')).replace(':count', n)))($data.newCount ?? 0)"></span>
                 </flux:button>
             </div>
-            @if ($layout === 'river' && $this->entries->isNotEmpty())
-                {{-- River: story previews; each is marked read once its top scrolls past the top of the list. --}}
-                @foreach ($this->entries->take($this->limit) as $item)
-                    <div wire:key="river-{{ $item->id }}-{{ $item->isRead() ? 'r' : 'u' }}"
-                        data-river-id="{{ $item->id }}" data-url="{{ $item->url }}"
-                        x-data="{ read: @js($item->isRead()) }"
-                        x-bind:class="read && 'bg-zinc-100 dark:bg-zinc-950/60'"
-                        @class([
-                            'border-b border-zinc-200 transition-colors duration-500 dark:border-zinc-800',
-                            'bg-zinc-100 dark:bg-zinc-950/60' => $item->isRead(),
-                            'border-s-4 highlight-'.$item->highlight() => $item->highlight(),
-                        ])>
-                        <x-reader.article :entry="$item" variant="river" :expanded="in_array($item->id, $expanded, true)" :signals="$this->signals[$item->id] ?? null">
-                            <x-slot:badges>
-                                <span x-show="! read" class="rounded-full bg-emerald-100 px-2 py-0.5 text-[0.65rem] font-semibold tracking-wide text-emerald-800 uppercase dark:bg-emerald-900/60 dark:text-emerald-300">{{ __('New') }}</span>
-                                @if ($item->isStarred())
-                                    <flux:icon.star variant="micro" class="text-amber-500" />
-                                @endif
-                                <x-reader.signals :signals="$this->signals[$item->id] ?? null" />
-                                <x-reader.tag-chips :tags="$this->entryTags[$item->id] ?? []" />
-                            </x-slot:badges>
-                            <x-slot:actions>
-                                <span class="ms-auto flex items-center gap-0.5">
-                                    <x-reader.tag-menu :entry-id="$item->id" :tags="$this->userTags" :selected="$this->entryTags[$item->id] ?? []" size="xs" />
-                                    <flux:button size="xs" variant="ghost" icon="star" :icon:variant="$item->isStarred() ? 'solid' : 'outline'"
-                                        wire:click="toggleStar({{ $item->id }})" @class(['!text-amber-500' => $item->isStarred()]) :tooltip="__('Star') . ' (s)'" />
-                                    <flux:button size="xs" variant="ghost" icon="bookmark" :icon:variant="$item->isSavedForLater() ? 'solid' : 'outline'"
-                                        wire:click="toggleLater({{ $item->id }})" :tooltip="__('Read later') . ' (l)'" />
-                                    <flux:button size="xs" variant="ghost" :icon="$item->isRead() ? 'envelope' : 'envelope-open'"
-                                        wire:click="toggleRead({{ $item->id }})" :tooltip="__('Mark read / unread') . ' (m)'" />
-                                </span>
-                            </x-slot:actions>
-                        </x-reader.article>
-                    </div>
-                @endforeach
-            @else
+            {{-- Each story is its own component, keyed on what it shows: when the reader re-renders,
+                 unchanged rows are skipped and only changed ones are drawn again. --}}
             @forelse ($this->entries->take($this->limit) as $item)
-                {{-- A div, not a button: the row holds links (tag chips). The title is the button. --}}
-                <div wire:key="entry-{{ $item->id }}" wire:click="select({{ $item->id }})"
-                    data-entry-id="{{ $item->id }}" data-url="{{ $item->url }}"
-                    @if ($item->id === $entryId) aria-current="true" @endif
-                    @class([
-                        'group relative flex w-full cursor-pointer gap-3 border-b border-zinc-100 px-4 py-3 text-start transition-colors dark:border-zinc-800',
-                        'bg-emerald-50 dark:bg-emerald-950/40' => $item->id === $entryId,
-                        'hover:bg-zinc-50 dark:hover:bg-zinc-800/60' => $item->id !== $entryId && ! $item->highlight(),
-                        'highlight-'.$item->highlight() => $item->highlight() && $item->id !== $entryId,
-                    ])>
-                    @if ($item->highlight() && $item->id !== $entryId)
-                        <span @class(['absolute inset-y-0 start-0 w-1', 'highlight-bar-'.$item->highlight()])></span>
-                    @endif
-                    @if ($item->id === $entryId)
-                        <span class="absolute inset-y-0 start-0 w-0.5 bg-emerald-600 dark:bg-emerald-400"></span>
-                    @endif
-
-                    <span class="mt-2 flex w-2 shrink-0 justify-center">
-                        @if (! $item->isRead())
-                            <span class="size-2 rounded-full bg-emerald-600 dark:bg-emerald-400" title="{{ __('Unread') }}"></span>
-                            <span class="sr-only">{{ __('Unread') }}</span>
-                        @endif
-                    </span>
-
-                    <span class="min-w-0 flex-1">
-                        <span class="flex items-center gap-1.5 text-[0.7rem] font-medium tracking-wide text-zinc-500 uppercase dark:text-zinc-400">
-                            <span class="truncate">{{ $item->feed->displayTitle() }}</span>
-                            <span aria-hidden="true">&middot;</span>
-                            <time class="shrink-0 normal-case" datetime="{{ $item->published_at->toIso8601String() }}" title="{{ $item->published_at->isoFormat('LLLL') }}">
-                                {{ $item->published_at->shortRelativeToNowDiffForHumans() }}
-                            </time>
-                            @if ($item->isStarred())
-                                <flux:icon.star variant="micro" class="shrink-0 text-amber-500" />
-                            @endif
-                            @if ($item->isSavedForLater())
-                                <flux:icon.bookmark variant="micro" class="shrink-0 text-emerald-600 dark:text-emerald-400" />
-                            @endif
-                        </span>
-
-                        <button type="button" @class([
-                            'mt-0.5 block text-start font-serif text-[1.05rem] leading-snug focus-visible:underline focus-visible:outline-none',
-                            'font-semibold text-zinc-900 dark:text-zinc-50' => ! $item->isRead(),
-                            'text-zinc-500 dark:text-zinc-400' => $item->isRead(),
-                        ])>{{ $item->title ?? __('Untitled') }}</button>
-
-                        @if ($layout === 'cards' && $item->summary)
-                            <span class="mt-1 line-clamp-2 block text-sm text-zinc-600 dark:text-zinc-400">{{ $item->summary }}</span>
-                        @endif
-
-                        <span class="mt-1.5 flex flex-wrap items-center gap-1 empty:hidden">
-                            @if ($this->isTop() && $item->top_sources > 1)
-                                <flux:badge size="sm" color="emerald" icon="newspaper">{{ trans_choice(':count source|:count sources', $item->top_sources) }}</flux:badge>
-                            @endif
-                            <x-reader.signals :signals="$this->isTop() ? array_merge($this->signals[$item->id] ?? [], ['sources' => 1]) : ($this->signals[$item->id] ?? null)" />
-                            <x-reader.tag-chips :tags="$this->entryTags[$item->id] ?? []" />
-                        </span>
-                    </span>
-
-                    @if ($layout === 'cards' && $item->image_url)
-                        <img src="{{ $item->image_url }}" alt="" loading="lazy" referrerpolicy="no-referrer"
-                            class="mt-1 size-20 shrink-0 rounded-md bg-zinc-100 object-cover dark:bg-zinc-800"
-                            onerror="this.remove()">
-                    @endif
-                </div>
+                <livewire:reader.row :key="$this->rowKey($item)" :entry="$item" :layout="$layout"
+                    :selected="$layout !== 'river' && $item->id === $entryId" :expanded="in_array($item->id, $expanded, true)" :top="$this->isTop()"
+                    :signals="$this->signals[$item->id] ?? null" :tags="$this->entryTags[$item->id] ?? []"
+                    :user-tags="$layout === 'river' ? $this->userTags : null" />
             @empty
                 <div class="flex flex-col items-center px-6 py-16 text-center">
                     <x-app-mark size="lg" class="opacity-60" />
@@ -616,7 +610,6 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
                     </flux:text>
                 </div>
             @endforelse
-            @endif
 
             @if ($this->hasMore)
                 <div x-intersect.margin.400px="$wire.loadMore()" class="flex justify-center py-6">
