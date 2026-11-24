@@ -2,6 +2,7 @@
 
 use App\Jobs\FetchFeed;
 use App\Models\Entry;
+use App\Models\EntryNote;
 use App\Models\Feed;
 use App\Models\User;
 use Illuminate\Support\Facades\Queue;
@@ -49,4 +50,25 @@ it('prunes old entries but keeps starred and saved ones', function () {
     $this->artisan('entries:prune')->assertSuccessful();
 
     expect(Entry::pluck('guid')->sort()->values()->all())->toBe(['recent', 'saved', 'starred']);
+});
+
+it('keeps old entries that are tagged or have a note when pruning', function () {
+    $user = User::factory()->create();
+    $feed = Feed::factory()->create();
+
+    $make = fn (string $guid) => $feed->entries()->create([
+        'guid' => $guid, 'guid_hash' => sha1($guid), 'title' => $guid, 'published_at' => now()->subDays(200),
+    ]);
+
+    $tagged = $make('tagged');
+    $noted = $make('noted');
+    $make('plain');
+
+    $tag = $user->tags()->create(['name' => 'Keep']);
+    $tagged->tags()->attach($tag->id);
+    (new EntryNote(['entry_id' => $noted->id, 'body' => 'Look into this']))->forceFill(['user_id' => $user->id])->save();
+
+    $this->artisan('entries:prune')->assertSuccessful();
+
+    expect(Entry::pluck('guid')->sort()->values()->all())->toBe(['noted', 'tagged']);
 });

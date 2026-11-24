@@ -36,3 +36,9 @@ jobs:
 
       - name: Run CI Checks
         run: composer ci:check
+
+      # Catches a broken production stack (e.g. a service another one depends on going missing).
+      - name: Validate production compose file
+        run: |
+          touch .env.production
+          DB_PASSWORD=ci docker compose --env-file .env.production -f docker-compose.production.yml config --quiet

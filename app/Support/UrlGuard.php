@@ -10,8 +10,25 @@ use App\Exceptions\UnsafeUrlException;
  */
 class UrlGuard
 {
-    /** @param bool|null $blockPrivate override the feed setting (alerts have their own) */
-    public static function assertSafe(string $url, ?bool $blockPrivate = null): void
+    /**
+     * Ranges that never belong to a public web server. PHP's FILTER_FLAG_NO_PRIV_RANGE /
+     * NO_RES_RANGE miss several of them (CGNAT, benchmarking, NAT64, ...), so they are
+     * listed explicitly.
+     */
+    private const BLOCKED = [
+        '0.0.0.0/8', '10.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8', '169.254.0.0/16', '172.16.0.0/12',
+        '192.0.0.0/24', '192.0.2.0/24', '192.88.99.0/24', '192.168.0.0/16', '198.18.0.0/15',
+        '198.51.100.0/24', '203.0.113.0/24', '224.0.0.0/4', '240.0.0.0/4',
+        '::/128', '::1/128', '64:ff9b::/96', '64:ff9b:1::/48', '100::/64', '2001::/32', '2001:db8::/32',
+        '2002::/16', 'fc00::/7', 'fe80::/10', 'fec0::/10', 'ff00::/8',
+    ];
+
+    /**
+     * @param  bool|null  $blockPrivate  override the feed setting (alerts have their own)
+     * @return list<string> the checked addresses the host resolves to (empty when the check is off);
+     *                      connect to one of these so a second DNS answer can't point elsewhere
+     */
+    public static function assertSafe(string $url, ?bool $blockPrivate = null): array
     {
         $parts = parse_url($url);
         $scheme = strtolower($parts['scheme'] ?? '');
@@ -21,7 +38,7 @@ class UrlGuard
         }
 
         if (! ($blockPrivate ?? config('newsstand.fetch.block_private_hosts'))) {
-            return;
+            return [];
         }
 
         $host = trim($parts['host'], '[]');
@@ -35,10 +52,63 @@ class UrlGuard
         }
 
         foreach ($ips as $ip) {
-            if (! filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+            if (! self::isPublic($ip)) {
                 throw new UnsafeUrlException("Host {$host} resolves to a private or reserved address.");
             }
         }
+
+        return $ips;
+    }
+
+    public static function isPublic(string $ip): bool
+    {
+        $packed = @inet_pton($ip);
+
+        if ($packed === false) {
+            return false;
+        }
+
+        // IPv4-mapped (::ffff:a.b.c.d) and IPv4-compatible (::a.b.c.d) addresses reach IPv4 hosts.
+        if (strlen($packed) === 16 && (str_starts_with($packed, str_repeat("\0", 10)."\xff\xff") || str_starts_with($packed, str_repeat("\0", 12)))) {
+            $v4 = substr($packed, 12);
+
+            if ($v4 !== "\0\0\0\0" && $v4 !== "\0\0\0\1") {
+                $packed = $v4;
+            }
+        }
+
+        foreach (self::BLOCKED as $cidr) {
+            if (self::inRange($packed, $cidr)) {
+                return false;
+            }
+        }
+
+        return (bool) filter_var(inet_ntop($packed), FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE);
+    }
+
+    private static function inRange(string $packed, string $cidr): bool
+    {
+        [$subnet, $bits] = explode('/', $cidr);
+        $net = (string) inet_pton($subnet);
+
+        if (strlen($net) !== strlen($packed)) {
+            return false;
+        }
+
+        $bits = (int) $bits;
+        $bytes = intdiv($bits, 8);
+
+        if (strncmp($packed, $net, $bytes) !== 0) {
+            return false;
+        }
+
+        if ($bits % 8 === 0) {
+            return true;
+        }
+
+        $mask = 0xFF << (8 - $bits % 8) & 0xFF;
+
+        return (ord($packed[$bytes]) & $mask) === (ord($net[$bytes]) & $mask);
     }
 
     /** @return list<string> */

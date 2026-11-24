@@ -5,15 +5,19 @@ namespace App\Jobs;
 use App\Models\Entry;
 use App\Services\Clustering\StoryClusterer;
 use App\Services\Security\ArticleScanner;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\Middleware\RateLimited;
 use Throwable;
 
 /** Fetch a teaser story's article once and link the CVEs it mentions. */
-class ScanArticleForCves implements ShouldQueue
+class ScanArticleForCves implements ShouldBeUnique, ShouldQueue
 {
     use Queueable;
+
+    /** Same window as retryUntil(): one scan per story while it waits for the rate limit. */
+    public int $uniqueFor = 6 * 3600;
 
     public int $tries = 1;
 
@@ -22,6 +26,11 @@ class ScanArticleForCves implements ShouldQueue
     public bool $deleteWhenMissingModels = true;
 
     public function __construct(public Entry $entry) {}
+
+    public function uniqueId(): string
+    {
+        return (string) $this->entry->id;
+    }
 
     /** @return list<object> */
     public function middleware(): array

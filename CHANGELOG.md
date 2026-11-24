@@ -6,6 +6,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-11-24
+
+### Fixed
+
+- **Production stack**: `docker-compose.production.yml` had lost its PostgreSQL service (the app waited on a `pgsql`
+  service that no longer existed). It is back, with its health check and the `pgdata` volume. CI now validates the
+  file.
+- **Pruning kept too little**: old stories that someone tagged (personal or team tags) or wrote a note on were deleted
+  after the retention period, taking the tags and notes with them. They are now kept like starred and saved stories.
+  Pruning also deletes in chunks of 1,000 instead of one large delete.
+- **Alerts stuck as "pending"**: when a channel failed on its last retry, alerts after the failing one stayed pending
+  forever; they are now marked failed too. More than 100 waiting alerts are flushed in follow-up runs instead of
+  waiting for the next alert. A new `alerts:retry-pending` command (every 15 minutes) re-queues alerts left pending
+  for over 15 minutes, for example after a worker crash.
+- **Stories missing CVEs, grouping or rules**: when their processing job failed, stories were never processed. The
+  scheduler now runs `signals:process --days=2` every hour as a safety net; already processed stories are skipped.
+- An article scan or full-text extraction is no longer queued twice for the same story.
+
 ## [1.7.0] - 2026-11-23
 
 ### Added

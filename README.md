@@ -132,7 +132,7 @@ All Newsstand settings are in `config/newsstand.php`, most with an environment v
 | `NEWSSTAND_REGISTRATION` | `open` | `closed`: only the first account can register; `disabled`: nobody can (use `newsstand:user`) |
 | `NEWSSTAND_USER_AGENT` | `Newsstand/1.0 (+self-hosted RSS reader)` | How Newsstand identifies itself to sites |
 | `NEWSSTAND_BLOCK_PRIVATE_HOSTS` | `true` | Refuse feeds on private / LAN addresses (SSRF protection) |
-| `NEWSSTAND_RETENTION_DAYS` | `90` | Delete older stories nightly (starred, saved and tagged are kept) |
+| `NEWSSTAND_RETENTION_DAYS` | `90` | Delete older stories nightly (starred, saved, tagged and annotated are kept) |
 | `NEWSSTAND_UNREAD_MAX_AGE_DAYS` | `30` | Older stories never count as unread |
 | `NVD_API_KEY` | none | Higher NVD rate limits for CVSS lookups ([request one](https://nvd.nist.gov/developers/request-an-api-key)) |
 | `NEWSSTAND_KEV_URL` | CISA's official GitHub copy | Source of the Known Exploited Vulnerabilities catalog |
@@ -149,11 +149,12 @@ All Newsstand settings are in `config/newsstand.php`, most with an environment v
 | `php artisan feeds:refresh {id?} --all` | Fetch feeds now (due feeds by default) |
 | `php artisan security:sync-kev` | Import CISA's KEV catalog (runs daily) |
 | `php artisan security:enrich [--all]` | Queue NVD lookups for scores and affected products (runs hourly) |
-| `php artisan signals:process --days=7` | Extract CVEs, group stories and run rules for older stories |
+| `php artisan signals:process --days=7` | Extract CVEs, group stories and run rules for stories not processed yet (`--days=2` runs hourly) |
 | `php artisan digest:send --user=you@example.com --force` | Send a digest now |
 | `php artisan newsstand:user email [--admin]` | Create a user |
 | `php artisan newsstand:admin email [--revoke]` | Grant or remove administrator rights |
 | `php artisan entries:prune` | Delete old stories (runs nightly) |
+| `php artisan alerts:retry-pending` | Queue delivery again for alerts pending over 15 minutes (runs every 15 minutes) |
 
 ## Security notes
 
