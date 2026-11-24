@@ -5,12 +5,15 @@ namespace App\Jobs;
 use App\Models\Entry;
 use App\Services\Feeds\FullTextExtractor;
 use App\Services\Security\CveExtractor;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 
-class ExtractFullText implements ShouldQueue
+class ExtractFullText implements ShouldBeUnique, ShouldQueue
 {
     use Queueable;
+
+    public int $uniqueFor = 3600;
 
     public int $tries = 2;
 
@@ -19,6 +22,11 @@ class ExtractFullText implements ShouldQueue
     public bool $deleteWhenMissingModels = true;
 
     public function __construct(public Entry $entry) {}
+
+    public function uniqueId(): string
+    {
+        return (string) $this->entry->id;
+    }
 
     public function handle(FullTextExtractor $extractor, CveExtractor $cves): void
     {

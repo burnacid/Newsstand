@@ -16,6 +16,7 @@ use App\Services\Rules\RuleEvaluator;
 use App\Services\Security\CveExtractor;
 use App\Services\Security\KevSync;
 use App\Services\Security\NvdClient;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Livewire\Livewire;
@@ -215,6 +216,29 @@ it('applies a keyword rule once, even after the user undoes it', function () {
     expect($this->user->entryStates()->find($hit->id)->pivot->starred_at)->toBeNull();
 });
 
+it('does not apply a rule twice when another job claims the story first', function () {
+    $rule = $this->user->rules()->create([
+        'name' => 'Ransomware', 'match' => 'all',
+        'conditions' => [['type' => 'keyword', 'value' => 'lockbit']],
+        'actions' => ['star' => true],
+    ]);
+    $hit = newsEntry($this->feedA, 'LockBit claims attack on city');
+
+    // A parallel job records the match right after this one looked at rule_entry.
+    $claimed = false;
+    DB::listen(function ($query) use (&$claimed, $rule, $hit) {
+        if (! $claimed && str_contains($query->sql, 'from "rule_entry"')) {
+            $claimed = true;
+            DB::table('rule_entry')->insert(['rule_id' => $rule->id, 'entry_id' => $hit->id, 'created_at' => now()]);
+        }
+    });
+
+    expect(app(RuleEvaluator::class)->evaluateEntries([$hit->id]))->toBe(0)
+        ->and($claimed)->toBeTrue()
+        ->and($rule->fresh()->matches_count)->toBe(0)
+        ->and($this->user->entryStates()->find($hit->id))->toBeNull();
+});
+
 it('matches security conditions and any/all', function () {
     $entry = newsEntry($this->feedA, 'Exploited firewall bug');
     $entry->cves()->attach(Cve::create(['cve_id' => 'CVE-2024-3400', 'cvss_score' => 10.0, 'severity' => 'critical', 'in_kev' => true]));
@@ -243,9 +267,9 @@ it('mutes stories so they leave feed listings', function () {
 
     app(RuleEvaluator::class)->evaluateEntries([$muted->id]);
 
-    Livewire::test('pages::reader.index')->set('show', 'all')
-        ->assertSee('Kernel patch')
-        ->assertDontSee('Bitcoin price swings');
+    $reader = Livewire::test('pages::reader.index')->set('show', 'all');
+
+    expect(listedTitles($reader))->toContain('Kernel patch')->not->toContain('Bitcoin price swings');
 });
 
 it('only applies rules for subscribers of the feed', function () {

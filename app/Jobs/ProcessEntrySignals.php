@@ -33,7 +33,14 @@ class ProcessEntrySignals implements ShouldQueue
 
     public function handle(CveExtractor $cves, StoryClusterer $clusterer): void
     {
-        $entries = Entry::with('feed')->whereKey($this->entryIds)->orderBy('published_at')->get();
+        // Skip stories already done: the hourly signals:process sweep can queue
+        // a story again while its first job is still waiting.
+        $entries = Entry::with('feed')->whereKey($this->entryIds)->where('signals_processed', false)->orderBy('published_at')->get();
+
+        if ($entries->isEmpty()) {
+            return;
+        }
+
         $toEvaluate = $entries->pluck('id')->all();
 
         foreach ($entries as $entry) {

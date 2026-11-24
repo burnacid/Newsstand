@@ -37,6 +37,17 @@ class StoryClusterer
         }
 
         return DB::transaction(function () use ($entry, $match) {
+            // Re-read under a row lock: a parallel job may have clustered the match
+            // (or this entry) since bestMatch() looked, and two clusters would split the story.
+            $match = Entry::query()->lockForUpdate()->find($match->id) ?? $match;
+            $current = Entry::query()->lockForUpdate()->whereKey($entry->id)->value('cluster_id');
+
+            if ($current !== null) {
+                $entry->cluster_id = (int) $current;
+
+                return StoryCluster::find($entry->cluster_id);
+            }
+
             $cluster = $match->cluster_id
                 ? StoryCluster::find($match->cluster_id)
                 : StoryCluster::create(['size' => 1, 'last_seen_at' => now()]);
@@ -82,9 +93,9 @@ class StoryClusterer
             $shared = DB::table('cve_entry')
                 ->whereIn('cve_id', $cves)
                 ->whereIn('entry_id', $candidates->pluck('id'))
-                ->whereNotIn('entry_id', function ($q) {
-                    // Exclude roundups on the other side too.
-                    $q->select('entry_id')->from('cve_entry')->groupBy('entry_id')->havingRaw('count(*) > 3');
+                ->whereNotIn('entry_id', function ($q) use ($candidates) {
+                    // Exclude roundups on the other side too (only among the candidates).
+                    $q->select('entry_id')->from('cve_entry')->whereIn('entry_id', $candidates->pluck('id'))->groupBy('entry_id')->havingRaw('count(*) > 3');
                 })
                 ->value('entry_id');
 

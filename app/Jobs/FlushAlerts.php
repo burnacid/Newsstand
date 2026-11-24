@@ -65,7 +65,7 @@ class FlushAlerts implements ShouldBeUniqueUntilProcessing, ShouldQueue
 
         $sender = AlertDispatcher::sender($channel->type);
 
-        foreach ($batches as [$ids, $message]) {
+        foreach ($batches as $i => [$ids, $message]) {
             try {
                 $sender->send($channel, $message);
                 Alert::whereKey($ids)->update(['status' => 'sent', 'sent_at' => now(), 'error' => null]);
@@ -74,15 +74,23 @@ class FlushAlerts implements ShouldBeUniqueUntilProcessing, ShouldQueue
                 $error = Str::limit($e->getMessage(), 500);
                 $channel->forceFill(['last_error' => $error])->save();
 
-                if ($this->attempts() >= $this->tries) {
-                    Alert::whereKey($ids)->update(['status' => 'failed', 'error' => $error]);
-
-                    return;
+                if ($this->attempts() < $this->tries) {
+                    // Leave them pending and let the queue retry the job.
+                    throw $e;
                 }
 
-                // Leave them pending and let the queue retry the job.
-                throw $e;
+                // Out of retries: the channel is not working, so fail this batch
+                // and the rest of this run instead of leaving them pending.
+                $rest = collect(array_slice($batches, $i))->flatMap(fn (array $batch) => $batch[0]);
+                Alert::whereKey($rest->all())->update(['status' => 'failed', 'error' => $error]);
+
+                break;
             }
+        }
+
+        // More than one run's worth was waiting: flush the next part.
+        if ($channel->alerts()->where('status', 'pending')->where('id', '>', $pending->max('id'))->exists()) {
+            self::dispatch($channel->id);
         }
     }
 }

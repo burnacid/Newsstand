@@ -3,6 +3,7 @@
 use App\Actions\Users\CreateUser;
 use App\Jobs\EnrichCve;
 use App\Jobs\FetchFeed;
+use App\Jobs\FlushAlerts;
 use App\Jobs\ProcessEntrySignals;
 use App\Jobs\ScanArticleForCves;
 use App\Mail\DailyDigest;
@@ -18,6 +19,7 @@ use App\Services\Digest\DigestBuilder;
 use App\Services\Feeds\FeedRefresher;
 use App\Services\Security\ArticleScanner;
 use App\Services\Security\KevSync;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schedule;
@@ -45,6 +47,11 @@ Artisan::command('feeds:dispatch-due', function () {
 
     $feeds->each(fn (Feed $feed) => FetchFeed::dispatch($feed));
 
+    // A lease: with a queue backlog the fetch may not run within the minute, and the
+    // feed must not be queued again meanwhile. The fetch sets the real next time;
+    // if the job gets lost, the feed comes up again after the lease.
+    Feed::whereKey($feeds->modelKeys())->update(['next_fetch_at' => now()->addMinutes(15)]);
+
     $this->info("Dispatched {$feeds->count()} feed(s).");
 })->purpose('Queue a fetch for every feed that is due');
 
@@ -67,16 +74,25 @@ Artisan::command('feeds:refresh {feed? : Feed ID} {--all : Refresh every subscri
 Artisan::command('entries:prune', function () {
     $days = config('newsstand.retention_days');
 
-    $deleted = Entry::query()
+    // Keep stories someone starred, saved, tagged or wrote a note on. Delete in
+    // small chunks so the cascades into the pivot tables stay short.
+    $prunable = fn () => Entry::query()
         ->where('published_at', '<', now()->subDays($days))
         ->whereDoesntHave('users', fn ($q) => $q->whereNotNull('starred_at')->orWhereNotNull('read_later_at'))
-        ->delete();
+        ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('entry_tag')->whereColumn('entry_tag.entry_id', 'entries.id'))
+        ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('entry_notes')->whereColumn('entry_notes.entry_id', 'entries.id'));
+
+    $deleted = 0;
+
+    while (($ids = $prunable()->orderBy('id')->limit(1000)->pluck('id'))->isNotEmpty()) {
+        $deleted += Entry::whereKey($ids)->delete();
+    }
 
     $clusters = StoryCluster::doesntHave('entries')->delete();
     Alert::where('created_at', '<', now()->subDays(90))->delete(); // alert history
 
     $this->info("Pruned {$deleted} entries older than {$days} days and {$clusters} empty story groups.");
-})->purpose('Delete old entries that nobody starred or saved');
+})->purpose('Delete old entries that nobody starred, saved, tagged or annotated');
 
 Artisan::command('security:sync-kev', function (KevSync $kev) {
     $result = $kev->sync();
@@ -100,7 +116,33 @@ Artisan::command('security:enrich {--all : Re-check every CVE mentioned in the l
     $this->info("Queued {$cves->count()} CVE lookup(s).");
 })->purpose('Queue NVD lookups for CVEs without a score or product data');
 
-Artisan::command('signals:process {--days=7 : How far back}', function () {
+Artisan::command('scheduler:check {--minutes=3 : How old the last run may be}', function () {
+    $last = Setting::get('scheduler.last_run_at');
+    $at = is_string($last) ? Carbon::parse($last) : null;
+
+    if ($at === null || $at->lessThan(now()->subMinutes((int) $this->option('minutes')))) {
+        $this->error('The scheduler has not run recently'.($at ? " (last run {$at->diffForHumans()})." : '.'));
+
+        return 1;
+    }
+
+    $this->info("The scheduler last ran {$at->diffForHumans()}.");
+
+    return 0;
+})->purpose('Exit with an error when the scheduler has not run in the last few minutes (container health check)');
+
+Artisan::command('alerts:retry-pending', function () {
+    // A worker crash or timeout can leave alerts pending with no flush queued.
+    $channels = Alert::where('status', 'pending')
+        ->where('created_at', '<', now()->subMinutes(15))
+        ->distinct()
+        ->pluck('alert_channel_id');
+
+    $channels->each(fn (int $id) => FlushAlerts::dispatch($id));
+    $this->info("Queued delivery for {$channels->count()} channel(s) with stuck alerts.");
+})->purpose('Queue delivery again for alerts that have been pending too long');
+
+Artisan::command('signals:process{--days=7 : How far back}', function () {
     $ids = Entry::where('signals_processed', false)->where('published_at', '>=', now()->subDays((int) $this->option('days')))->pluck('id');
 
     $ids->chunk(200)->each(fn ($chunk) => ProcessEntrySignals::dispatch($chunk->values()->all()));
@@ -198,4 +240,10 @@ Schedule::command('digest:send')->hourlyAt(0);
 Schedule::command('security:sync-kev')->dailyAt('06:15');
 Schedule::command('security:enrich')->hourly();
 Schedule::command('entries:prune')->dailyAt('03:30');
+// Safety nets: stories whose processing job failed, alerts left pending by a crash.
+Schedule::command('signals:process', ['--days' => 2])->hourlyAt(20)->withoutOverlapping();
+Schedule::command('alerts:retry-pending')->everyFifteenMinutes()->withoutOverlapping();
+// Housekeeping: expired team invite links, failed jobs older than 30 days.
+Schedule::command('model:prune')->dailyAt('03:45');
+Schedule::command('queue:prune-failed', ['--hours' => 24 * 30])->dailyAt('03:50');
 Schedule::command('horizon:snapshot')->everyFiveMinutes()->when(fn () => config('queue.default') === 'redis');

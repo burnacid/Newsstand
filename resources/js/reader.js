@@ -189,6 +189,11 @@ export default () => ({
             return;
         }
 
+        // Enter on a focused button or link does what that control does (e.g. opens that story).
+        if (event.key === 'Enter' && target.closest?.('button, a')) {
+            return;
+        }
+
         const river = this.isRiver();
         const withCurrent = (fn) => () => {
             const id = this.currentId();
@@ -210,7 +215,11 @@ export default () => ({
                 if (confirm('Mark every story here as read?')) this.$wire.markAllRead();
             },
             '/': () => this.$refs.search?.querySelector('input')?.focus() ?? this.$refs.search?.focus(),
-            Escape: () => this.$wire.closeEntry(),
+            Escape: () => {
+                const id = this.$wire.entryId;
+                // Back to the story's row (redrawn on close), so keyboard users continue where they were.
+                this.$wire.closeEntry().then(() => this.focusRow(id));
+            },
             '?': () => this.$flux.modal('shortcuts').show(),
         };
 
@@ -241,10 +250,18 @@ export default () => ({
         const el = items[index];
         el.scrollIntoView({ block: 'nearest' });
         this.$refs.pane?.scrollTo({ top: 0 });
-        this.$wire.select(Number(el.dataset.entryId));
+        const id = Number(el.dataset.entryId);
+        this.focusRow(id);
+        // The selected row is redrawn by the server, so focus it again once that is done.
+        this.$wire.select(id).then(() => this.focusRow(id));
 
         // Prefetch more when getting close to the end of the list.
         if (index >= items.length - 5) this.$wire.loadMore();
+    },
+
+    /** Focus a list row's title button: focus follows the selection, so screen readers announce it. */
+    focusRow(id) {
+        this.$root.querySelector(`[data-entry-id="${id}"] button`)?.focus({ preventScroll: true });
     },
 
     openTagMenu() {

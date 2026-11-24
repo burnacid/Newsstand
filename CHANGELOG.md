@@ -6,6 +6,132 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-11-24
+
+### Added
+
+- **Saved searches**: while searching in the reader, "Save search" keeps the search (and the feed, folder or tag it
+  runs in) in a new "Saved searches" group in the sidebar. The same button removes it again.
+- **Mark older stories as read**: the reader's mark-as-read button is now a menu: mark everything, or only stories
+  older than 24 hours or 7 days. It applies to what the reader shows, so open a feed or folder to clear just that.
+  Shift+A still marks everything.
+- **Sort order**: newest or oldest first, from the new button next to the layout switch. Kept for the session.
+- **Sample data**: `php artisan db:seed --class=DemoSeeder` fills an empty database with fictional feeds, stories,
+  CVEs, rules and a dashboard (refuses to run when other users exist). The README screenshots use it.
+- README screenshots of the reader, river, dashboards, vulnerabilities, a CVE page, rules, dark mode and a phone.
+
+### Changed
+
+- **Faster reader**: each story in the list, cards and river is now its own component. Starring, opening, reading
+  or tagging a story redraws only the rows that changed instead of the whole list, which matters most in the river
+  where every row holds a full article. Loading more stories sends only the new ones. Tagging from a river story
+  updates just that story and keeps the tag menu open.
+- Keyboard focus is restored to the story's row after the reader redraws it (j/k, Escape).
+
+### Tests
+
+- New browser check `tests/Browser/reader-rows-check.mjs` (rows, focus, sort, mark-read menu, saved searches,
+  river tag menu), and `tests/Browser/screenshots.mjs` for the README screenshots.
+
+## [1.9.0] - 2026-11-24
+
+### Added
+
+- **Health checks for every container**: Horizon reports through `horizon:status`, the scheduler through the new
+  `php artisan scheduler:check` (fails when the scheduler's heartbeat is older than 3 minutes). `/up` now also
+  checks that the database and cache answer.
+
+### Changed
+
+- **Reader accessibility**:
+  - Story rows no longer nest links (tag chips) inside a button; the story title is the button.
+  - The open story's row is marked as current for screen readers, and "Unread" is announced.
+  - j/k move keyboard focus along with the selection; Escape returns focus to the story's row.
+  - Enter on a focused button or link does what that control does, instead of jumping to the next story.
+  - The "N new stories" bar is announced when it appears.
+  - The mark-all-read, layout and shortcut buttons have labels; the layout switch reports which layout is on.
+- The reader list dims while a search, filter or layout change loads, and the filter row wraps on narrow screens.
+- The dashboard header wraps on phones instead of running off the screen. The All/Unread switch reports its state,
+  and the dashboard menu button has a label.
+- Higher contrast for the version label, story counts on CVE widgets and the NVD link.
+- Production compose: Horizon gets 90 seconds to finish running jobs on deploys, PostgreSQL 60 seconds to shut down,
+  and container logs rotate (5 × 10 MB per container).
+- Dependabot also proposes Composer, npm and Docker base image updates.
+
+### Removed
+
+- The unused starter-kit header layout (it had a dead Search link).
+
+### Tests
+
+- New tests for `/up`, the security headers, `scheduler:check` and the article HTML sanitizer (scripts, event
+  handlers, `javascript:` and `data:` URLs, iframes, SVG, forms, styles). The scaffold example tests are gone.
+
+## [1.8.0] - 2026-11-24
+
+### Changed
+
+- **Full article text is a per-subscription choice**: the "Fetch full article text" switch used to turn extraction
+  on or off for everyone subscribed to the feed. Now each subscription (personal or team) has its own switch, and
+  the feed fetches full text while at least one subscriber wants it. Existing subscriptions to feeds that had it on
+  keep it on.
+- Feeds that moved permanently (only 301/308 redirects) are stored under their new address, unless another feed
+  already uses it.
+- A feed that answers 410 Gone is checked once a day; 429 and 503 responses honor the site's `Retry-After`.
+
+### Security
+
+- Fetching feeds, articles and webhook alerts now connects to the exact address that passed the private-network
+  check, for the first request and every redirect, so a DNS answer that changes between check and connection
+  (DNS rebinding) can't reach internal hosts.
+- The private-network check also refuses carrier-grade NAT (100.64.0.0/10), benchmarking, documentation and
+  multicast ranges, IPv4-mapped IPv6 (`::ffff:127.0.0.1`), NAT64 and other special-purpose IPv6 ranges, which
+  PHP's built-in filter lets through.
+- The response size limit now also applies to responses without a `Content-Length` (chunked), stopping the
+  download once the limit is reached.
+
+### Fixed
+
+- Two fetches of the same feed at once could fail on a duplicate story; the second now skips stories the first
+  stored. A feed queued for fetching is no longer queued again every minute while the queue is busy.
+- Two jobs evaluating the same story at once could apply a rule twice (double alerts, `matches_count` counted
+  twice). A match is now claimed before its actions run.
+- Two stories matching the same story at once could split it over two story groups.
+
+### Performance
+
+- New database indexes for due feeds, rule evaluation, story groups, pruning cascades, rules, alert channels,
+  watchlists, notes and widgets, plus PostgreSQL partial indexes for the background sweeps over unprocessed stories.
+- Rule evaluation loads rules, users, earlier matches and watchlist hits for a batch of stories in a few queries
+  instead of several per story and reader; team highlights are written in one query.
+- Story grouping checks for CVE roundups only among the candidate stories instead of the whole CVE table.
+- "Unread only" dashboard widgets use a `NOT EXISTS` check that stays fast with a long reading history.
+- The KEV sync no longer scans the whole catalog for each missing description.
+- The reader caps the list of read stories it keeps visible during a visit at 500.
+
+### Maintenance
+
+- Expired team invite links are deleted a week after they expire, and failed queue jobs after 30 days
+  (`model:prune` and `queue:prune-failed` run nightly).
+
+## [1.7.1] - 2026-11-24
+
+### Fixed
+
+- **Production stack**: `docker-compose.production.yml` had lost its PostgreSQL service (the app waited on a `pgsql`
+  service that no longer existed). It is back, with its health check and the `pgdata` volume. CI now validates the
+  file.
+- **Pruning kept too little**: old stories that someone tagged (personal or team tags) or wrote a note on were deleted
+  after the retention period, taking the tags and notes with them. They are now kept like starred and saved stories.
+  Pruning also deletes in chunks of 1,000 instead of one large delete.
+- **Alerts stuck as "pending"**: when a channel failed on its last retry, alerts after the failing one stayed pending
+  forever; they are now marked failed too. More than 100 waiting alerts are flushed in follow-up runs instead of
+  waiting for the next alert. A new `alerts:retry-pending` command (every 15 minutes) re-queues alerts left pending
+  for over 15 minutes, for example after a worker crash.
+- **Stories missing CVEs, grouping or rules**: when their processing job failed, stories were never processed. The
+  scheduler now runs `signals:process --days=2` every hour as a safety net; already processed stories are skipped.
+- An article scan or full-text extraction is no longer queued twice for the same story.
+
 ## [1.7.0] - 2026-11-23
 
 ### Added

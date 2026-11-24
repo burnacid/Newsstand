@@ -144,10 +144,55 @@ it('records an error for responses that are not feeds', function () {
 
 it('queues full-text extraction for new entries when enabled', function () {
     Queue::fake();
-    $this->feed->update(['full_text' => true]);
+    $this->feed->subscriptions()->first()->update(['full_text' => true]);
     Http::fake(['*' => Http::response(feedFixture('rss.xml'))]);
 
     refreshFeed($this->feed);
 
     Queue::assertPushed(ExtractFullText::class, 2);
 });
+
+it('honors Retry-After when rate limited', function () {
+    Http::fake(['*' => Http::response('slow down', 429, ['Retry-After' => '7200'])]);
+
+    refreshFeed($this->feed);
+
+    expect(now()->diffInMinutes($this->feed->fresh()->next_fetch_at))->toBeGreaterThanOrEqual(119.0);
+});
+
+it('checks feeds that are gone only once a day', function () {
+    Http::fake(['*' => Http::response('', 410)]);
+
+    refreshFeed($this->feed);
+
+    expect(now()->diffInMinutes($this->feed->fresh()->next_fetch_at))->toBeGreaterThanOrEqual(24 * 60 - 1.0);
+});
+
+it('stores the new address of a feed that moved permanently', function () {
+    Http::fake(['*' => Http::response(feedFixture('rss.xml'), 200, [
+        'X-Guzzle-Redirect-History' => 'https://new.example.com/feed.xml',
+        'X-Guzzle-Redirect-Status-History' => '301',
+    ])]);
+
+    refreshFeed($this->feed);
+
+    expect($this->feed->fresh()->url)->toBe('https://new.example.com/feed.xml');
+});
+
+it('keeps the address after a temporary redirect or when the new address is taken', function (string $status, bool $taken) {
+    if ($taken) {
+        Feed::factory()->create(['url' => 'https://new.example.com/feed.xml']);
+    }
+    Http::fake(['*' => Http::response(feedFixture('rss.xml'), 200, [
+        'X-Guzzle-Redirect-History' => 'https://new.example.com/feed.xml',
+        'X-Guzzle-Redirect-Status-History' => $status,
+    ])]);
+
+    refreshFeed($this->feed);
+
+    expect($this->feed->fresh()->url)->toBe('https://security.example.com/feed.xml');
+})->with([
+    'temporary' => ['302', false],
+    'mixed hops' => ['301, 302', false],
+    'taken' => ['301', true],
+]);

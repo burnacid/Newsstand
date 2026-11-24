@@ -6,6 +6,8 @@
     'expanded' => false,
     // Security / coverage signals from EntryQuery::signalsFor(), shown under the full text.
     'signals' => null,
+    // Prefix for Livewire calls: '$parent.' when rendered inside a reader row component.
+    'call' => '',
 ])
 
 @php($river = $variant === 'river')
@@ -61,7 +63,7 @@
 
         <div class="mt-5 flex flex-wrap items-center gap-2">
             @if ($entry->content || $entry->summary)
-                <flux:button size="sm" wire:click="expand({{ $entry->id }})" icon:trailing="chevron-down">{{ __('Continue reading') }}</flux:button>
+                <flux:button size="sm" wire:click="{{ $call }}expand({{ $entry->id }})" icon:trailing="chevron-down">{{ __('Continue reading') }}</flux:button>
             @endif
             @if ($entry->url)
                 <flux:button size="sm" variant="ghost" :href="$entry->url" target="_blank" rel="noopener noreferrer" icon:trailing="arrow-top-right-on-square">
@@ -93,7 +95,7 @@
 
         <div @class(['flex flex-wrap items-center gap-2 pt-6 text-zinc-300 dark:text-zinc-700', 'rule-double mt-12' => ! $river, 'mt-8' => $river])>
             @if ($river)
-                <flux:button size="sm" wire:click="expand({{ $entry->id }})" icon:trailing="chevron-up">{{ __('Show less') }}</flux:button>
+                <flux:button size="sm" wire:click="{{ $call }}expand({{ $entry->id }})" icon:trailing="chevron-up">{{ __('Show less') }}</flux:button>
             @endif
             @if ($entry->url)
                 <flux:button :href="$entry->url" target="_blank" rel="noopener noreferrer" icon:trailing="arrow-top-right-on-square" :size="$river ? 'sm' : null" :variant="$river ? 'ghost' : null">

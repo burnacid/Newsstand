@@ -7,12 +7,30 @@ dashboards with colleagues or publish them as a read-only page.
 
 Built with Laravel 13, Livewire 4 and Flux. Runs on PostgreSQL (recommended), MySQL/MariaDB or SQLite.
 
+![The reader: stories with CVE, exploitation and watchlist badges, and the open story](docs/screenshots/reader.png)
+
+## Screenshots
+
+The screenshots use sample data with fictional outlets, vendors and CVEs (see [Sample data](#sample-data)).
+
+| | |
+|---|---|
+| ![River view: full story previews to scroll through](docs/screenshots/river.png) | ![A dashboard with top stories, vulnerabilities, watchlist and tag widgets](docs/screenshots/dashboard.png) |
+| **River**: scroll through previews; stories are marked read as they pass | **Dashboards**: widgets for top stories, CVEs, your products and tags |
+| ![Vulnerabilities page with CVSS scores and exploitation status](docs/screenshots/security.png) | ![A CVE page with CISA and NVD details and the stories about it](docs/screenshots/cve.png) |
+| **Vulnerabilities** mentioned in your feeds, with NVD scores and CISA KEV status | **CVE page**: exploitation, severity, affected products and every story about it |
+| ![Rules that highlight and tag stories](docs/screenshots/rules.png) | ![The reader in dark mode](docs/screenshots/reader-dark.png) |
+| **Rules**: highlight, tag, star or mute what matches | **Dark mode** |
+
+<p align="center"><img src="docs/screenshots/mobile.png" width="300" alt="The reader on a phone"></p>
+
 ## Features
 
 - **Feeds**: subscribe by site or feed URL (auto-discovery), folders with drag and drop, OPML import/export,
   per-feed health, full-text fetching for summary-only feeds, adaptive polling with backoff.
 - **Reader**: list, card and river views; keyboard shortcuts (`?` shows them); star, read later, tags;
-  full-text search (PostgreSQL: phrases, `-exclude`, `OR`); time filters.
+  full-text search (PostgreSQL: phrases, `-exclude`, `OR`) with saved searches in the sidebar; time filters;
+  newest or oldest first; mark everything, or only what is older than a day or a week, as read.
 - **Security signals**: CVEs extracted from every story, CVSS scores from NVD, exploitation status from
   CISA's Known Exploited Vulnerabilities catalog; a Vulnerabilities page; Top stories ranked by coverage and severity.
 - **Watchlist**: the vendors and products you run; stories and CVEs that affect them are flagged, with a CVE page
@@ -74,6 +92,20 @@ run `php artisan optimize:clear`.
 
 Browser checks (Playwright, against a running dev server) live in `tests/Browser`; see its README.
 
+### Sample data
+
+`DemoSeeder` fills an empty database with one user, six fictional feeds, stories, CVEs, a watchlist item, rules,
+tags and a dashboard, all processed the way real stories are (CVE extraction, story groups, rules). It refuses to
+run on a database that has other users. Use a throwaway database, never your own:
+
+```bash
+touch /tmp/newsstand-demo.sqlite
+DB_DATABASE=/tmp/newsstand-demo.sqlite php artisan migrate --force
+DB_DATABASE=/tmp/newsstand-demo.sqlite php artisan db:seed --class=DemoSeeder --force
+DB_DATABASE=/tmp/newsstand-demo.sqlite php artisan serve --port=8011   # sign in as demo@newsstand.test / demo-password
+node tests/Browser/screenshots.mjs http://127.0.0.1:8011               # refreshes docs/screenshots
+```
+
 ## Production
 
 The image is published on Docker Hub as [`burnacid/newsstand`](https://hub.docker.com/r/burnacid/newsstand)
@@ -132,7 +164,7 @@ All Newsstand settings are in `config/newsstand.php`, most with an environment v
 | `NEWSSTAND_REGISTRATION` | `open` | `closed`: only the first account can register; `disabled`: nobody can (use `newsstand:user`) |
 | `NEWSSTAND_USER_AGENT` | `Newsstand/1.0 (+self-hosted RSS reader)` | How Newsstand identifies itself to sites |
 | `NEWSSTAND_BLOCK_PRIVATE_HOSTS` | `true` | Refuse feeds on private / LAN addresses (SSRF protection) |
-| `NEWSSTAND_RETENTION_DAYS` | `90` | Delete older stories nightly (starred, saved and tagged are kept) |
+| `NEWSSTAND_RETENTION_DAYS` | `90` | Delete older stories nightly (starred, saved, tagged and annotated are kept) |
 | `NEWSSTAND_UNREAD_MAX_AGE_DAYS` | `30` | Older stories never count as unread |
 | `NVD_API_KEY` | none | Higher NVD rate limits for CVSS lookups ([request one](https://nvd.nist.gov/developers/request-an-api-key)) |
 | `NEWSSTAND_KEV_URL` | CISA's official GitHub copy | Source of the Known Exploited Vulnerabilities catalog |
@@ -149,16 +181,19 @@ All Newsstand settings are in `config/newsstand.php`, most with an environment v
 | `php artisan feeds:refresh {id?} --all` | Fetch feeds now (due feeds by default) |
 | `php artisan security:sync-kev` | Import CISA's KEV catalog (runs daily) |
 | `php artisan security:enrich [--all]` | Queue NVD lookups for scores and affected products (runs hourly) |
-| `php artisan signals:process --days=7` | Extract CVEs, group stories and run rules for older stories |
+| `php artisan signals:process --days=7` | Extract CVEs, group stories and run rules for stories not processed yet (`--days=2` runs hourly) |
 | `php artisan digest:send --user=you@example.com --force` | Send a digest now |
 | `php artisan newsstand:user email [--admin]` | Create a user |
 | `php artisan newsstand:admin email [--revoke]` | Grant or remove administrator rights |
 | `php artisan entries:prune` | Delete old stories (runs nightly) |
+| `php artisan scheduler:check` | Fail when the scheduler has not run in the last 3 minutes (used by the container health check) |
+| `php artisan alerts:retry-pending` | Queue delivery again for alerts pending over 15 minutes (runs every 15 minutes) |
 
 ## Security notes
 
 - Article HTML from feeds is sanitized before it's stored; images load without a referrer.
 - Server-side fetches are protected against SSRF: http(s) only, private and reserved addresses refused
-  (including after redirects), response size capped.
+  (including after redirects, IPv4-mapped IPv6, NAT64 and carrier-grade NAT), the connection pinned to the
+  checked address (no DNS rebinding), response size capped (also for chunked responses).
 - Some sites block automated readers (cisa.gov, for example). Newsstand says so instead of disguising itself.
 - Public dashboard links show headlines only, are random 40-character tokens, can be revoked, and are rate limited.

@@ -59,19 +59,27 @@ class EntryStates
      */
     public function setColumns(User $user, int $entryId, array $values): void
     {
+        $this->setColumnsFor([$user->id], $entryId, $values);
+    }
+
+    /**
+     * The same as setColumns() for several users in one query.
+     *
+     * @param  list<int>  $userIds
+     * @param  array<string, mixed>  $values
+     */
+    public function setColumnsFor(array $userIds, int $entryId, array $values): void
+    {
         $allowed = array_intersect_key($values, array_flip(['read_at', 'starred_at', 'read_later_at', 'highlight', 'muted_at']));
 
-        if ($allowed === []) {
+        if ($allowed === [] || $userIds === []) {
             return;
         }
 
         $now = now();
+        $rows = array_map(fn (int $id) => ['user_id' => $id, 'entry_id' => $entryId, ...$allowed, 'created_at' => $now, 'updated_at' => $now], $userIds);
 
-        DB::table('entry_user')->upsert(
-            [['user_id' => $user->id, 'entry_id' => $entryId, ...$allowed, 'created_at' => $now, 'updated_at' => $now]],
-            ['user_id', 'entry_id'],
-            [...array_keys($allowed), 'updated_at'],
-        );
+        DB::table('entry_user')->upsert($rows, ['user_id', 'entry_id'], [...array_keys($allowed), 'updated_at']);
     }
 
     /** Clear rule highlight and mute for an entry. */

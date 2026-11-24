@@ -67,7 +67,7 @@
                             @else
                                 <span class="font-mono text-xs font-medium text-zinc-800 dark:text-zinc-100">{{ $cve->cve_id }}</span>
                             @endif
-                            <a href="{{ $cve->nvdUrl() }}" target="_blank" rel="noopener noreferrer" class="text-zinc-400 hover:text-zinc-600" title="{{ __('Open at NVD') }}">
+                            <a href="{{ $cve->nvdUrl() }}" target="_blank" rel="noopener noreferrer" class="text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200" title="{{ __('Open at NVD') }}" aria-label="{{ __('Open :id at NVD', ['id' => $cve->cve_id]) }}">
                                 <flux:icon.arrow-top-right-on-square variant="micro" />
                             </a>
                             @if ($cve->cvss_score !== null)

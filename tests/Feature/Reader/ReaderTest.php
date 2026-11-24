@@ -160,10 +160,9 @@ it('marks everything in the current view as read', function () {
 });
 
 it('searches titles', function () {
-    Livewire::test('pages::reader.index')
-        ->set('search', 'laravel')
-        ->assertSee('Laravel 13 released')
-        ->assertDontSee('Zero-day in VPN');
+    $reader = Livewire::test('pages::reader.index')->set('search', 'laravel');
+
+    expect(listedTitles($reader))->toBe(['Laravel 13 released']);
 });
 
 it('loads more entries', function () {
@@ -270,3 +269,72 @@ it('cleans feed titles', function (string $raw, string $clean) {
     ['The Hacker News', 'The Hacker News'],
     ['Feedbin', 'Feedbin'],
 ]);
+
+it('marks only stories older than a day or a week as read', function () {
+    $lastWeek = makeEntry($this->security, 'Patch Tuesday recap', now()->subDays(3));
+
+    Livewire::test('pages::reader.index')->call('markAllRead', 'day');
+
+    $read = fn (Entry $e) => $this->user->entryStates()->find($e->id)?->pivot->read_at !== null;
+    expect($read($lastWeek))->toBeTrue()
+        ->and($read($this->a))->toBeFalse()
+        ->and($read($this->b))->toBeFalse();
+});
+
+it('sorts oldest first and remembers it', function () {
+    $component = Livewire::test('pages::reader.index')->set('show', 'all');
+    expect($component->instance()->entries->pluck('title')->first())->toBe('Zero-day in VPN');
+
+    $component->call('toggleSort')->assertSet('sort', 'oldest');
+    expect($component->instance()->entries->pluck('title')->first())->toBe('Ancient news');
+
+    $component->call('toggleSort')->assertSet('sort', 'newest');
+});
+
+it('saves a search to the sidebar and removes it again', function () {
+    $reader = Livewire::withQueryParams(['s' => 'folder:'.$this->folder->id])->test('pages::reader.index')
+        ->set('search', 'zero-day')
+        ->assertDispatched('reader-search-changed')
+        ->call('toggleSavedSearch')
+        ->assertDispatched('saved-searches-changed');
+
+    $saved = $this->user->savedSearches()->sole();
+    expect($saved->query)->toBe('zero-day')
+        ->and($saved->source)->toBe('folder:'.$this->folder->id)
+        ->and($saved->url())->toContain('q=zero-day');
+
+    Livewire::test('reader.nav')->assertSee('zero-day');
+
+    $reader->call('toggleSavedSearch');
+    expect($this->user->savedSearches()->count())->toBe(0);
+});
+
+it('keeps saved searches private', function () {
+    User::factory()->create()->savedSearches()->create(['name' => 'their search', 'source' => 'all', 'query' => 'secret']);
+
+    Livewire::test('reader.nav')->assertDontSee('their search');
+});
+
+it('redraws only the rows that changed', function () {
+    $reader = Livewire::test('pages::reader.index')
+        ->assertSeeHtml('data-entry-id="'.$this->a->id.'"')
+        ->assertSeeHtml('data-entry-id="'.$this->b->id.'"');
+
+    // Opening story a changes its row (selected, read); story b's row is skipped.
+    $reader->call('select', $this->a->id)
+        ->assertSeeHtml('data-entry-id="'.$this->a->id.'"')
+        ->assertDontSeeHtml('data-entry-id="'.$this->b->id.'"');
+});
+
+it('tags a story from its river row without re-rendering the reader', function () {
+    $tag = $this->user->tags()->create(['name' => 'vpn']);
+    $entry = app(EntryQuery::class)->find($this->user, $this->a->id);
+
+    Livewire::test('reader.row', ['entry' => $entry, 'layout' => 'river'])
+        ->assertSee('Zero-day in VPN')
+        ->call('toggleTag', $tag->id)
+        ->assertDispatched('tags-changed')
+        ->assertSee('#vpn');
+
+    expect($tag->entries()->pluck('entries.id')->all())->toBe([$this->a->id]);
+});

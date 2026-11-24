@@ -50,12 +50,16 @@ class EntryProcessor
                 continue;
             }
 
-            $created->push($feed->entries()->create([
+            // Another fetch of this feed may have stored it in the meantime.
+            $entry = $feed->entries()->createOrFirst(['guid_hash' => $hash], [
                 'guid' => $item->guid,
-                'guid_hash' => $hash,
                 'published_at' => $item->publishedAt,
                 ...$attributes,
-            ]));
+            ]);
+
+            if ($entry->wasRecentlyCreated) {
+                $created->push($entry);
+            }
         }
 
         if ($feed->full_text) {

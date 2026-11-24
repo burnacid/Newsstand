@@ -190,11 +190,11 @@ it('filters by time period', function () {
         ->and($titles('month'))->toHaveCount(3)
         ->and($titles(null))->toHaveCount(3);
 
-    Livewire::test('pages::reader.index')
+    $reader = Livewire::test('pages::reader.index')
         ->set('show', 'all')
-        ->set('period', 'day')
-        ->assertSee('Today story')
-        ->assertDontSee('Last week story');
+        ->set('period', 'day');
+
+    expect(listedTitles($reader))->toContain('Today story')->not->toContain('Last week story');
 });
 
 it('uses the PostgreSQL full-text index with web search syntax', function () {

@@ -504,14 +504,14 @@ new #[Title('Dashboard')] class extends Component {
             @endif
         </div>
 
-        <div class="flex items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2">
             <flux:button variant="ghost" icon="star" wire:click="toggleDefault" data-test="toggle-default"
                 :icon:variant="$this->isDefault() ? 'solid' : 'outline'" @class(['text-amber-500!' => $this->isDefault()])
                 :tooltip="$this->isDefault() ? __('Default dashboard (click to unset)') : __('Make this your default dashboard')"
                 :aria-pressed="$this->isDefault() ? 'true' : 'false'" />
             <div class="me-2 flex items-center rounded-lg bg-zinc-100 p-0.5 dark:bg-zinc-800" data-test="unread-toggle">
-                <flux:button size="sm" :variant="$unreadOnly ? 'subtle' : 'filled'" wire:click="$set('unreadOnly', false)">{{ __('All') }}</flux:button>
-                <flux:button size="sm" :variant="$unreadOnly ? 'filled' : 'subtle'" wire:click="$set('unreadOnly', true)" data-test="unread-only">{{ __('Unread') }}</flux:button>
+                <flux:button size="sm" :variant="$unreadOnly ? 'subtle' : 'filled'" wire:click="$set('unreadOnly', false)" aria-pressed="{{ $unreadOnly ? 'false' : 'true' }}">{{ __('All') }}</flux:button>
+                <flux:button size="sm" :variant="$unreadOnly ? 'filled' : 'subtle'" wire:click="$set('unreadOnly', true)" data-test="unread-only" aria-pressed="{{ $unreadOnly ? 'true' : 'false' }}">{{ __('Unread') }}</flux:button>
             </div>
             @if ($this->canEdit())
                 @if ($editing)
@@ -526,7 +526,7 @@ new #[Title('Dashboard')] class extends Component {
                     <flux:button icon="share" data-test="share">{{ __('Share') }}</flux:button>
                 </flux:modal.trigger>
                 <flux:dropdown align="end">
-                    <flux:button variant="ghost" icon="ellipsis-horizontal" data-test="dashboard-menu" />
+                    <flux:button variant="ghost" icon="ellipsis-horizontal" data-test="dashboard-menu" :aria-label="__('Dashboard options')" />
                     <flux:menu>
                         <flux:modal.trigger name="rename"><flux:menu.item icon="pencil">{{ __('Rename') }}</flux:menu.item></flux:modal.trigger>
                         <flux:menu.item icon="trash" variant="danger" wire:click="deleteDashboard"
@@ -589,7 +589,7 @@ new #[Title('Dashboard')] class extends Component {
                                     <flux:badge size="sm" color="red" variant="solid" icon="fire">{{ __('Exploited') }}</flux:badge>
                                 @endif
                                 <span class="min-w-0 flex-1 truncate text-xs text-zinc-500">{{ $cve->kev_product ? $cve->kev_vendor.' '.$cve->kev_product : Str::limit($cve->description, 60) }}</span>
-                                <span class="shrink-0 text-xs text-zinc-400">{{ trans_choice(':count story|:count stories', $cve->stories) }}</span>
+                                <span class="shrink-0 text-xs text-zinc-500 dark:text-zinc-400">{{ trans_choice(':count story|:count stories', $cve->stories) }}</span>
                             </a>
                         @empty
                             <p class="px-4 py-6 text-center text-sm text-zinc-500">{{ __('No vulnerabilities in the last two weeks.') }}</p>

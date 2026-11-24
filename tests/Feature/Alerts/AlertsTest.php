@@ -145,6 +145,52 @@ it('records delivery errors on the channel', function () {
         ->and(Alert::sole()->status)->toBe('pending'); // retried by the queue
 });
 
+it('fails every remaining alert of the run on the last attempt', function () {
+    Queue::fake();
+    Http::fake(['*' => Http::response('down', 500)]);
+    $ch = channel($this->user, 'ntfy', ['server' => 'https://ntfy.example.com', 'topic' => 't']);
+    foreach (range(1, 3) as $i) {
+        app(AlertDispatcher::class)->queue($ch, new AlertMessage("Story {$i}", 'b'), "entry:{$i}");
+    }
+
+    $job = (new FlushAlerts($ch->id))->withFakeQueueInteractions();
+    $job->job->attempts = 3;
+    $job->handle();
+
+    Http::assertSentCount(1); // stops trying after the first failure
+    expect(Alert::where('status', 'failed')->count())->toBe(3)
+        ->and(Alert::where('status', 'pending')->count())->toBe(0);
+});
+
+it('queues another flush when more alerts wait than one run handles', function () {
+    Queue::fake();
+    Http::fake(['*' => Http::response('ok')]);
+    $ch = channel($this->user, 'ntfy', ['server' => 'https://ntfy.example.com', 'topic' => 't']);
+    foreach (range(1, 101) as $i) {
+        app(AlertDispatcher::class)->queue($ch, new AlertMessage("Story {$i}", 'b'), "entry:{$i}");
+    }
+    Queue::fake(); // forget the flush queued by the dispatcher
+
+    (new FlushAlerts($ch->id))->handle();
+
+    expect(Alert::where('status', 'pending')->count())->toBe(1);
+    Queue::assertPushed(FlushAlerts::class, 1);
+});
+
+it('requeues channels with alerts stuck in pending', function () {
+    Queue::fake();
+    $ch = channel($this->user, 'ntfy', ['server' => 'https://ntfy.example.com', 'topic' => 't']);
+    app(AlertDispatcher::class)->queue($ch, AlertMessage::test(), 'test:1');
+    Queue::fake();
+
+    $this->artisan('alerts:retry-pending')->assertSuccessful();
+    Queue::assertNothingPushed(); // not stuck yet
+
+    $this->travel(20)->minutes();
+    $this->artisan('alerts:retry-pending')->assertSuccessful();
+    Queue::assertPushed(FlushAlerts::class, fn (FlushAlerts $job) => $job->channelId === $ch->id);
+});
+
 // --- Triggers: watchlist ---
 
 it('alerts on watchlist stories according to the item\'s level', function () {
