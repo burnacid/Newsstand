@@ -14,7 +14,7 @@ COPY . .
 RUN composer dump-autoload --no-dev --optimize --classmap-authoritative --no-scripts
 
 # --- Front-end assets ---------------------------------------------------------
-FROM node:24-alpine AS assets
+FROM node:26-alpine AS assets
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
