@@ -91,6 +91,16 @@ class Feed extends Model
             ->orderByRaw('next_fetch_at is not null, next_fetch_at');
     }
 
+    /** Fetch full article text when at least one subscriber (person or team) wants it. */
+    public function syncFullText(): void
+    {
+        $wanted = $this->subscriptions()->where('full_text', true)->exists();
+
+        if ($wanted !== $this->full_text) {
+            $this->forceFill(['full_text' => $wanted])->save();
+        }
+    }
+
     public function isHealthy(): bool
     {
         return $this->error_count === 0;

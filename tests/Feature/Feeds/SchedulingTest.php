@@ -27,6 +27,11 @@ it('dispatches only due feeds that have subscribers', function () {
     Queue::assertPushed(FetchFeed::class, 2);
     Queue::assertPushed(FetchFeed::class, fn ($job) => $job->feed->is($never));
     Queue::assertPushed(FetchFeed::class, fn ($job) => $job->feed->is($due));
+
+    // Queued feeds are not queued again while their fetch waits in the queue.
+    Queue::fake();
+    $this->artisan('feeds:dispatch-due')->assertSuccessful();
+    Queue::assertNothingPushed();
 });
 
 it('prunes old entries but keeps starred and saved ones', function () {

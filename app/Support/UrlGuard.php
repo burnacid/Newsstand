@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Exceptions\UnsafeUrlException;
+use Psr\Http\Message\RequestInterface;
 
 /**
  * Guards server-side fetches of user-supplied URLs against SSRF:
@@ -58,6 +59,29 @@ class UrlGuard
         }
 
         return $ips;
+    }
+
+    /**
+     * Guzzle middleware: checks every request (including each redirect hop) and makes
+     * curl connect to the address that was checked, so DNS can't answer with a public
+     * address for the check and a private one for the connection (DNS rebinding).
+     *
+     * @param  bool|null  $blockPrivate  as for assertSafe()
+     */
+    public static function middleware(?bool $blockPrivate = null): callable
+    {
+        return fn (callable $handler) => function (RequestInterface $request, array $options) use ($handler, $blockPrivate) {
+            $uri = $request->getUri();
+            $ips = self::assertSafe((string) $uri, $blockPrivate);
+
+            if ($ips !== [] && ! filter_var($uri->getHost(), FILTER_VALIDATE_IP) && defined('CURLOPT_RESOLVE')) {
+                $port = $uri->getPort() ?? ($uri->getScheme() === 'https' ? 443 : 80);
+                $ip = str_contains($ips[0], ':') ? "[{$ips[0]}]" : $ips[0];
+                $options['curl'][CURLOPT_RESOLVE] = ["{$uri->getHost()}:{$port}:{$ip}"];
+            }
+
+            return $handler($request, $options);
+        };
     }
 
     public static function isPublic(string $ip): bool

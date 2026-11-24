@@ -56,7 +56,7 @@ class WidgetContent
 
             if ($query && $unreadOnly) {
                 $query->where(fn (Builder $q) => $q
-                    ->whereNotIn('entries.id', $this->readBy($viewer))
+                    ->whereNotExists($this->readBy($viewer))
                     ->when($keep !== [], fn (Builder $q) => $q->orWhereIn('entries.id', $keep)));
             }
 
@@ -226,9 +226,13 @@ class WidgetContent
             ->get(['cves.*', 'm.stories', 'm.last_mentioned_at']);
     }
 
+    /** Correlated "the viewer read this story" (NOT EXISTS stays fast with a long read history). */
     private function readBy(User $viewer): QueryBuilder
     {
-        return DB::table('entry_user')->select('entry_id')->where('user_id', $viewer->id)->whereNotNull('read_at');
+        return DB::table('entry_user')->selectRaw('1')
+            ->whereColumn('entry_user.entry_id', 'entries.id')
+            ->where('entry_user.user_id', $viewer->id)
+            ->whereNotNull('entry_user.read_at');
     }
 
     /**

@@ -209,7 +209,7 @@ new #[Title('Feeds')] class extends Component {
         $this->editingId = $subscription->id;
         $this->editTitle = $subscription->custom_title ?? '';
         $this->editFolderId = (string) ($subscription->folder_id ?? '');
-        $this->editFullText = $subscription->feed->full_text;
+        $this->editFullText = $subscription->full_text;
 
         Flux::modal('edit-subscription')->show();
     }
@@ -226,15 +226,13 @@ new #[Title('Feeds')] class extends Component {
 
         $subscription->update([
             'custom_title' => $this->editTitle !== '' ? $this->editTitle : null,
+            'full_text' => $this->editFullText,
             'folder_id' => $folderId,
             // Moving to another folder puts the feed at the end of it.
             'position' => $subscription->folder_id === $folderId
                 ? $subscription->position
                 : SubscribeToFeed::nextPosition(Auth::user(), $folderId),
         ]);
-
-        // Full-text extraction is a property of the (shared) feed.
-        $subscription->feed->update(['full_text' => $this->editFullText]);
 
         $this->reset('editingId', 'editTitle', 'editFolderId', 'editFullText');
         unset($this->subscriptions);
@@ -575,7 +573,7 @@ new #[Title('Feeds')] class extends Component {
                 @endforeach
             </flux:select>
             <flux:switch wire:model="editFullText" :label="__('Fetch full article text')"
-                :description="__('For feeds that only publish a summary. Applies to everyone subscribed to this feed.')" />
+                :description="__('For feeds that only publish a summary. Others subscribed to this feed will see the full text too.')" />
             <div class="flex justify-end gap-2">
                 <flux:modal.close><flux:button variant="ghost">{{ __('Cancel') }}</flux:button></flux:modal.close>
                 <flux:button type="submit" variant="primary">{{ __('Save') }}</flux:button>

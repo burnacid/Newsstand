@@ -52,8 +52,10 @@ class KevSync
                 ]);
             }
 
+            $descriptions = $rows->pluck('description', 'cve_id');
+
             Cve::whereNull('description')->whereIn('cve_id', $rows->pluck('cve_id'))->each(
-                fn (Cve $cve) => $cve->update(['description' => $rows->firstWhere('cve_id', $cve->cve_id)['description'] ?? null])
+                fn (Cve $cve) => $cve->update(['description' => $descriptions[$cve->cve_id] ?? null])
             );
         });
 

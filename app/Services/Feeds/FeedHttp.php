@@ -2,14 +2,13 @@
 
 namespace App\Services\Feeds;
 
+use App\Exceptions\ResponseTooLargeException;
 use App\Support\UrlGuard;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
-use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
-use Psr\Http\Message\UriInterface;
-use RuntimeException;
 
 /**
  * HTTP client for fetching user-supplied URLs: custom UA, timeouts,
@@ -19,24 +18,29 @@ class FeedHttp
 {
     public function client(): PendingRequest
     {
-        $maxBytes = config('newsstand.fetch.max_bytes');
+        $maxBytes = (int) config('newsstand.fetch.max_bytes');
 
         return Http::withUserAgent(config('newsstand.fetch.user_agent'))
             ->timeout(config('newsstand.fetch.timeout'))
             ->connectTimeout(10)
             ->accept('application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.9, text/html;q=0.8, */*;q=0.5')
+            // Runs for the first request and again for every redirect hop.
+            ->withMiddleware(UrlGuard::middleware())
             ->withOptions([
                 'allow_redirects' => [
                     'max' => config('newsstand.fetch.max_redirects'),
                     'protocols' => ['http', 'https'],
                     'track_redirects' => true,
-                    'on_redirect' => function (RequestInterface $request, ResponseInterface $response, UriInterface $uri) {
-                        UrlGuard::assertSafe((string) $uri);
-                    },
                 ],
                 'on_headers' => function (ResponseInterface $response) use ($maxBytes) {
                     if ((int) $response->getHeaderLine('Content-Length') > $maxBytes) {
-                        throw new RuntimeException('Response is larger than the allowed maximum.');
+                        throw new ResponseTooLargeException;
+                    }
+                },
+                // Chunked responses have no Content-Length: stop once too much has arrived.
+                'progress' => function (int $total, int $downloaded) use ($maxBytes) {
+                    if ($downloaded > $maxBytes) {
+                        throw new ResponseTooLargeException;
                     }
                 },
             ]);
@@ -45,9 +49,19 @@ class FeedHttp
     /** @param array<string, string> $headers */
     public function get(string $url, array $headers = []): Response
     {
-        UrlGuard::assertSafe($url);
+        try {
+            // The client's middleware checks this URL and every redirect target.
+            return $this->client()->withHeaders($headers)->get($url);
+        } catch (ConnectionException $e) {
+            // Guzzle wraps an aborted download; report the reason instead.
+            for ($cause = $e->getPrevious(); $cause; $cause = $cause->getPrevious()) {
+                if ($cause instanceof ResponseTooLargeException) {
+                    throw $cause;
+                }
+            }
 
-        return $this->client()->withHeaders($headers)->get($url);
+            throw $e;
+        }
     }
 
     /** The final URL after redirects. */

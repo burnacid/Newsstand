@@ -22,9 +22,11 @@ abstract class WebhookSender implements AlertSender
 
     protected function http(string $url): PendingRequest
     {
-        UrlGuard::assertSafe($url, self::blocksPrivateAddresses());
+        $block = self::blocksPrivateAddresses();
+        UrlGuard::assertSafe($url, $block); // fail before building the request
 
         return Http::withUserAgent(config('newsstand.fetch.user_agent'))
+            ->withMiddleware(UrlGuard::middleware($block)) // pins the checked address
             ->timeout(10)
             ->connectTimeout(5)
             ->withoutRedirecting();

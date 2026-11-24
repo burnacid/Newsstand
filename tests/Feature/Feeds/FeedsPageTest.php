@@ -86,7 +86,28 @@ it('edits a subscription', function () {
     $subscription->refresh();
     expect($subscription->custom_title)->toBe('My title')
         ->and($subscription->folder_id)->toBe($folder->id)
+        ->and($subscription->full_text)->toBeTrue()
         ->and($feed->fresh()->full_text)->toBeTrue();
+});
+
+it('keeps full text on for the feed while any subscriber wants it', function () {
+    $feed = Feed::factory()->create();
+    $mine = $this->user->subscriptions()->create(['feed_id' => $feed->id]);
+    $theirs = User::factory()->create()->subscriptions()->create(['feed_id' => $feed->id, 'full_text' => true]);
+
+    expect($feed->fresh()->full_text)->toBeTrue();
+
+    // Turning it off for me does not turn it off for them.
+    Livewire::test('pages::feeds.index')
+        ->call('edit', $mine->id)
+        ->assertSet('editFullText', false)
+        ->set('editFullText', false)
+        ->call('saveEdit');
+    expect($feed->fresh()->full_text)->toBeTrue();
+
+    // Once nobody wants it, the feed stops fetching full text.
+    $theirs->delete();
+    expect($feed->fresh()->full_text)->toBeFalse();
 });
 
 it('unsubscribes without deleting the shared feed', function () {

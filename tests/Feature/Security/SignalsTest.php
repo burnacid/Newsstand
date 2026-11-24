@@ -16,6 +16,7 @@ use App\Services\Rules\RuleEvaluator;
 use App\Services\Security\CveExtractor;
 use App\Services\Security\KevSync;
 use App\Services\Security\NvdClient;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Livewire\Livewire;
@@ -213,6 +214,29 @@ it('applies a keyword rule once, even after the user undoes it', function () {
     app(EntryStates::class)->setColumns($this->user, $hit->id, ['starred_at' => null]);
     app(RuleEvaluator::class)->evaluateEntries([$hit->id]);
     expect($this->user->entryStates()->find($hit->id)->pivot->starred_at)->toBeNull();
+});
+
+it('does not apply a rule twice when another job claims the story first', function () {
+    $rule = $this->user->rules()->create([
+        'name' => 'Ransomware', 'match' => 'all',
+        'conditions' => [['type' => 'keyword', 'value' => 'lockbit']],
+        'actions' => ['star' => true],
+    ]);
+    $hit = newsEntry($this->feedA, 'LockBit claims attack on city');
+
+    // A parallel job records the match right after this one looked at rule_entry.
+    $claimed = false;
+    DB::listen(function ($query) use (&$claimed, $rule, $hit) {
+        if (! $claimed && str_contains($query->sql, 'from "rule_entry"')) {
+            $claimed = true;
+            DB::table('rule_entry')->insert(['rule_id' => $rule->id, 'entry_id' => $hit->id, 'created_at' => now()]);
+        }
+    });
+
+    expect(app(RuleEvaluator::class)->evaluateEntries([$hit->id]))->toBe(0)
+        ->and($claimed)->toBeTrue()
+        ->and($rule->fresh()->matches_count)->toBe(0)
+        ->and($this->user->entryStates()->find($hit->id))->toBeNull();
 });
 
 it('matches security conditions and any/all', function () {

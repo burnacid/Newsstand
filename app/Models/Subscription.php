@@ -13,10 +13,23 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $feed_id
  * @property int|null $folder_id
  * @property string|null $custom_title
+ * @property bool $full_text whether this subscriber wants full article text fetched
  */
-#[Fillable(['feed_id', 'folder_id', 'custom_title', 'position', 'team_id'])]
+#[Fillable(['feed_id', 'folder_id', 'custom_title', 'position', 'team_id', 'full_text'])]
 class Subscription extends Model
 {
+    protected static function booted(): void
+    {
+        // Keep the feed's flag ("anyone wants full text") in step.
+        static::saved(fn (Subscription $s) => $s->wasChanged('full_text') || $s->wasRecentlyCreated ? $s->feed?->syncFullText() : null);
+        static::deleted(fn (Subscription $s) => $s->feed?->syncFullText());
+    }
+
+    protected function casts(): array
+    {
+        return ['full_text' => 'boolean'];
+    }
+
     /** @return BelongsTo<User, $this> */
     public function user(): BelongsTo
     {

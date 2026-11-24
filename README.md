@@ -160,6 +160,7 @@ All Newsstand settings are in `config/newsstand.php`, most with an environment v
 
 - Article HTML from feeds is sanitized before it's stored; images load without a referrer.
 - Server-side fetches are protected against SSRF: http(s) only, private and reserved addresses refused
-  (including after redirects), response size capped.
+  (including after redirects, IPv4-mapped IPv6, NAT64 and carrier-grade NAT), the connection pinned to the
+  checked address (no DNS rebinding), response size capped (also for chunked responses).
 - Some sites block automated readers (cisa.gov, for example). Newsstand says so instead of disguising itself.
 - Public dashboard links show headlines only, are random 40-character tokens, can be revoked, and are rate limited.

@@ -159,7 +159,7 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
         }
 
         $this->entryId = $entry->id;
-        $this->keep[] = $entry->id;
+        $this->keepVisible([$entry->id]);
 
         if (! $entry->isRead()) {
             app(EntryStates::class)->markRead(Auth::user(), [$entry->id]);
@@ -180,7 +180,7 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
             return;
         }
 
-        $this->keep[] = $entry->id;
+        $this->keepVisible([$entry->id]);
         app(EntryStates::class)->markRead(Auth::user(), [$entry->id], ! $entry->isRead());
 
         $this->dispatch('unread-changed');
@@ -288,7 +288,7 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
         }
 
         $this->expanded[] = $entry->id;
-        $this->keep[] = $entry->id;
+        $this->keepVisible([$entry->id]);
 
         if (! $entry->isRead()) {
             app(EntryStates::class)->markRead(Auth::user(), [$entry->id]);
@@ -327,7 +327,7 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
         }
 
         app(EntryStates::class)->markRead(Auth::user(), $unread);
-        $this->keep = array_values(array_unique([...$this->keep, ...$unread]));
+        $this->keepVisible($unread);
 
         $this->dispatch('unread-changed');
     }
@@ -369,6 +369,18 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
     }
 
     // --- Helpers ---
+
+    /**
+     * Read stories that stay listed until you leave. Capped: the list travels with
+     * every request and ends up in the query, and a long river session would grow it
+     * without limit (the oldest ones are far out of view by then).
+     *
+     * @param  list<int>  $ids
+     */
+    private function keepVisible(array $ids): void
+    {
+        $this->keep = array_slice(array_values(array_unique([...$this->keep, ...$ids])), -500);
+    }
 
     /** Searching always looks through read stories too. */
     private function unreadOnly(): bool

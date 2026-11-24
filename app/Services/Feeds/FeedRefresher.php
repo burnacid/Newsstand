@@ -3,6 +3,8 @@
 namespace App\Services\Feeds;
 
 use App\Models\Feed;
+use App\Support\UrlNormalizer;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Str;
 use RuntimeException;
 use Throwable;
@@ -24,6 +26,7 @@ class FeedRefresher
     {
         $feed->last_fetched_at = now();
         $new = 0;
+        $waitAtLeast = 0; // minutes the site asked us to stay away
 
         try {
             $response = $this->http->get($feed->url, array_filter([
@@ -33,6 +36,13 @@ class FeedRefresher
 
             if ($response->status() !== 304) {
                 if (! $response->successful()) {
+                    $waitAtLeast = match ($response->status()) {
+                        // Gone for good: check once a day in case it comes back.
+                        410 => (int) config('newsstand.fetch.max_backoff'),
+                        429, 503 => $this->retryAfter($response->header('Retry-After')),
+                        default => 0,
+                    };
+
                     throw new RuntimeException(FeedDiscovery::explainStatus($response->status()));
                 }
 
@@ -44,7 +54,11 @@ class FeedRefresher
                 $feed->etag = $response->header('ETag') ?: null;
                 $feed->last_modified = $response->header('Last-Modified') ?: null;
 
+                // Also catches subscriptions removed by a cascade (no model events there).
+                $feed->full_text = $feed->subscriptions()->where('full_text', true)->exists();
+
                 $new = $this->processor->store($feed, $parsed->items)->count();
+                $this->followPermanentRedirect($feed, $response);
             }
 
             $feed->error_count = 0;
@@ -55,7 +69,7 @@ class FeedRefresher
         } catch (Throwable $e) {
             $feed->error_count++;
             $feed->last_error = Str::limit($e->getMessage(), 1000);
-            $feed->next_fetch_at = now()->addMinutes($this->backoff($feed));
+            $feed->next_fetch_at = now()->addMinutes(max($this->backoff($feed), $waitAtLeast));
 
             report($e);
         } finally {
@@ -96,6 +110,43 @@ class FeedRefresher
         }
 
         return (int) max($min, min($max, round($gaps->median() / 2)));
+    }
+
+    /**
+     * A feed that moved permanently (only 301/308 hops) is stored under its new
+     * address, unless another feed already uses that address.
+     */
+    private function followPermanentRedirect(Feed $feed, Response $response): void
+    {
+        $statuses = array_filter(array_map('trim', explode(',', $response->header('X-Guzzle-Redirect-Status-History'))));
+
+        if ($statuses === [] || array_diff($statuses, ['301', '308']) !== []) {
+            return;
+        }
+
+        $target = FeedHttp::effectiveUrl($response, $feed->url);
+
+        if (UrlNormalizer::hash($target) === $feed->url_hash || Feed::findByUrl($target)) {
+            return;
+        }
+
+        $feed->url = UrlNormalizer::normalize($target);
+    }
+
+    /** Minutes from a Retry-After header (seconds or an HTTP date), capped at the maximum backoff. */
+    private function retryAfter(string $header): int
+    {
+        $header = trim($header);
+
+        if ($header === '') {
+            return 0;
+        }
+
+        $seconds = ctype_digit($header)
+            ? (int) $header
+            : (int) max(0, (strtotime($header) ?: time()) - time());
+
+        return (int) min((int) ceil($seconds / 60), config('newsstand.fetch.max_backoff'));
     }
 
     private function backoff(Feed $feed): int

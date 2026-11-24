@@ -27,6 +27,15 @@ class RuleEvaluator
     /** Whether matching rules may send alerts (off while back-filling). */
     private bool $notify = true;
 
+    /** @var array<int, array<int, true>> entry id => rule ids already applied, for the stories being evaluated */
+    private array $done = [];
+
+    /** @var array<int, list<array{user_id: int|null, team_id: int|null}>> entry id => owners of the watchlist items it hit */
+    private array $watchlistHits = [];
+
+    /** @var array<int, list<int>> user id => team ids */
+    private array $teamIds = [];
+
     public function __construct(private EntryStates $states) {}
 
     /**
@@ -43,40 +52,79 @@ class RuleEvaluator
 
         $entries = Entry::with(['cves', 'cluster'])->whereKey($entryIds)->get();
         $applied = 0;
+        $this->preload($entries);
 
-        foreach ($entries->groupBy('feed_id') as $feedId => $feedEntries) {
-            // Personal subscribers and members of teams that follow the feed.
-            foreach (FeedAccess::readersOf((int) $feedId) as $userId => $folderId) {
-                $rules = Rule::where('user_id', $userId)->where('enabled', true)->orderBy('position')->get();
+        try {
+            foreach ($entries->groupBy('feed_id') as $feedId => $feedEntries) {
+                // Personal subscribers and members of teams that follow the feed.
+                $readers = FeedAccess::readersOf((int) $feedId);
+                $rulesByUser = Rule::whereIn('user_id', $readers->keys())->where('enabled', true)->orderBy('position')->get()->groupBy('user_id');
+                $users = User::query()->whereKey($rulesByUser->keys())->get()->keyBy('id');
 
-                if ($rules->isEmpty()) {
-                    continue;
+                foreach ($readers as $userId => $folderId) {
+                    $rules = $rulesByUser->get($userId);
+                    $user = $users->get($userId);
+
+                    if (! $rules || ! $user) {
+                        continue;
+                    }
+
+                    foreach ($feedEntries as $entry) {
+                        $applied += $this->evaluate($user, $rules, $entry, $folderId);
+                    }
                 }
 
-                $user = User::query()->whereKey($userId)->first();
+                // Teams that share the feed run their team rules once per story.
+                $teamFolders = DB::table('subscriptions')->where('feed_id', (int) $feedId)->whereNotNull('team_id')->pluck('folder_id', 'team_id');
+                $rulesByTeam = Rule::whereIn('team_id', $teamFolders->keys())->where('enabled', true)->orderBy('position')->get()->groupBy('team_id');
 
-                if (! $user) {
-                    continue;
-                }
+                foreach ($teamFolders as $teamId => $folderId) {
+                    $rules = $rulesByTeam->get($teamId);
 
-                foreach ($feedEntries as $entry) {
-                    $applied += $this->evaluate($user, $rules, $entry, $folderId);
+                    foreach ($rules ? $feedEntries : [] as $entry) {
+                        $applied += $this->evaluate(null, $rules, $entry, $folderId === null ? null : (int) $folderId);
+                    }
                 }
             }
-
-            // Teams that share the feed run their team rules once per story.
-            $teamFolders = DB::table('subscriptions')->where('feed_id', (int) $feedId)->whereNotNull('team_id')->pluck('folder_id', 'team_id');
-
-            foreach ($teamFolders as $teamId => $folderId) {
-                $rules = Rule::where('team_id', $teamId)->where('enabled', true)->orderBy('position')->get();
-
-                foreach ($rules->isEmpty() ? [] : $feedEntries as $entry) {
-                    $applied += $this->evaluate(null, $rules, $entry, $folderId === null ? null : (int) $folderId);
-                }
-            }
+        } finally {
+            $this->forget();
         }
 
         return $applied;
+    }
+
+    /**
+     * Load what evaluate() and the watchlist condition need for these stories in a
+     * few queries, instead of several per story and reader.
+     *
+     * @param  Collection<int, Entry>  $entries
+     */
+    private function preload(Collection $entries): void
+    {
+        $ids = $entries->pluck('id')->all();
+        $this->done = array_fill_keys($ids, []);
+        $this->watchlistHits = array_fill_keys($ids, []);
+
+        foreach (DB::table('rule_entry')->whereIn('entry_id', $ids)->get(['entry_id', 'rule_id']) as $row) {
+            $this->done[(int) $row->entry_id][(int) $row->rule_id] = true;
+        }
+
+        $hits = DB::table('watchlist_hits')
+            ->join('watchlist_items', 'watchlist_items.id', '=', 'watchlist_hits.watchlist_item_id')
+            ->whereIn('watchlist_hits.entry_id', $ids)
+            ->get(['watchlist_hits.entry_id', 'watchlist_items.user_id', 'watchlist_items.team_id']);
+
+        foreach ($hits as $hit) {
+            $this->watchlistHits[(int) $hit->entry_id][] = [
+                'user_id' => $hit->user_id === null ? null : (int) $hit->user_id,
+                'team_id' => $hit->team_id === null ? null : (int) $hit->team_id,
+            ];
+        }
+    }
+
+    private function forget(): void
+    {
+        $this->done = $this->watchlistHits = $this->teamIds = [];
     }
 
     /**
@@ -93,6 +141,7 @@ class RuleEvaluator
             return $this->backfill($rule, $days);
         } finally {
             $this->notify = true;
+            $this->forget();
         }
     }
 
@@ -120,6 +169,8 @@ class RuleEvaluator
             ->reorder()
             ->orderBy('entries.id')
             ->chunk(200, function (Collection $entries) use ($user, $rule, $folders, &$applied) {
+                $this->preload($entries);
+
                 foreach ($entries as $entry) {
                     $applied += $this->evaluate($user, collect([$rule]), $entry, $folders[$entry->feed_id] ?? null);
                 }
@@ -140,6 +191,8 @@ class RuleEvaluator
             ->with(['cves', 'cluster'])
             ->orderBy('id')
             ->chunk(200, function (Collection $entries) use ($rule, $folders, &$applied) {
+                $this->preload($entries);
+
                 foreach ($entries as $entry) {
                     $folderId = $folders[$entry->feed_id] ?? null;
                     $applied += $this->evaluate(null, collect([$rule]), $entry, $folderId === null ? null : (int) $folderId);
@@ -172,11 +225,18 @@ class RuleEvaluator
      */
     private function evaluate(?User $user, Collection $rules, Entry $entry, ?int $folderId): int
     {
-        $done = DB::table('rule_entry')->where('entry_id', $entry->id)->whereIn('rule_id', $rules->pluck('id'))->pluck('rule_id')->flip();
+        $done = $this->done[$entry->id]
+            ?? DB::table('rule_entry')->where('entry_id', $entry->id)->whereIn('rule_id', $rules->pluck('id'))->pluck('rule_id')->flip()->all();
         $applied = 0;
 
         foreach ($rules as $rule) {
-            if ($done->has($rule->id) || ! $this->matches($rule, $entry, $folderId)) {
+            if (isset($done[$rule->id]) || ! $this->matches($rule, $entry, $folderId)) {
+                continue;
+            }
+
+            // Claim the match first: when two jobs evaluate the same story at once,
+            // only the one whose insert lands applies the rule.
+            if (DB::table('rule_entry')->insertOrIgnore(['rule_id' => $rule->id, 'entry_id' => $entry->id, 'created_at' => now()]) === 0) {
                 continue;
             }
 
@@ -186,7 +246,6 @@ class RuleEvaluator
                 $this->apply($user, $rule, $entry);
             }
 
-            DB::table('rule_entry')->insertOrIgnore(['rule_id' => $rule->id, 'entry_id' => $entry->id, 'created_at' => now()]);
             $rule->increment('matches_count');
             $applied++;
         }
@@ -198,7 +257,6 @@ class RuleEvaluator
     private function condition(array $c, Entry $entry, string $text, string $title, ?int $folderId, Rule $rule): bool
     {
         $value = $c['value'] ?? null;
-        $userId = $rule->user_id;
 
         return match ($c['type'] ?? null) {
             'keyword' => self::containsAny($text, $value),
@@ -210,17 +268,40 @@ class RuleEvaluator
             'has_cve' => $entry->cves->isNotEmpty(),
             'cvss' => $entry->cves->contains(fn ($cve) => $cve->cvss_score !== null && $cve->cvss_score >= (float) $value),
             'kev' => $entry->cves->contains('in_kev', true),
-            'watchlist' => DB::table('watchlist_hits')
-                ->join('watchlist_items', 'watchlist_items.id', '=', 'watchlist_hits.watchlist_item_id')
-                ->where(fn ($q) => $rule->isTeamRule()
-                    ? $q->where('watchlist_items.team_id', $rule->team_id)
-                    : $q->where('watchlist_items.user_id', $userId)
-                        ->orWhereIn('watchlist_items.team_id', DB::table('team_user')->select('team_id')->where('user_id', $userId)))
-                ->where('watchlist_hits.entry_id', $entry->id)
-                ->exists(),
+            'watchlist' => $this->onWatchlist($entry, $rule),
             'sources' => ($entry->cluster->size ?? 1) >= max(2, (int) $value),
             default => false,
         };
+    }
+
+    /** Whether the story hit a watchlist item of the rule's team, or of the rule's owner or their teams. */
+    private function onWatchlist(Entry $entry, Rule $rule): bool
+    {
+        $userId = $rule->user_id;
+
+        if (isset($this->watchlistHits[$entry->id])) {
+            $teams = $rule->isTeamRule()
+                ? [(int) $rule->team_id]
+                : ($this->teamIds[(int) $userId] ??= array_values(DB::table('team_user')->where('user_id', $userId)->pluck('team_id')->map(fn ($id) => (int) $id)->all()));
+
+            foreach ($this->watchlistHits[$entry->id] as $hit) {
+                if (in_array($hit['team_id'], $teams, true) || (! $rule->isTeamRule() && $hit['user_id'] === $userId)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        // Not preloaded (e.g. the rule editor's preview).
+        return DB::table('watchlist_hits')
+            ->join('watchlist_items', 'watchlist_items.id', '=', 'watchlist_hits.watchlist_item_id')
+            ->where(fn ($q) => $rule->isTeamRule()
+                ? $q->where('watchlist_items.team_id', $rule->team_id)
+                : $q->where('watchlist_items.user_id', $userId)
+                    ->orWhereIn('watchlist_items.team_id', DB::table('team_user')->select('team_id')->where('user_id', $userId)))
+            ->where('watchlist_hits.entry_id', $entry->id)
+            ->exists();
     }
 
     private function apply(User $user, Rule $rule, Entry $entry): void
@@ -261,9 +342,8 @@ class RuleEvaluator
         }
 
         if (in_array($actions['highlight'] ?? null, Rule::HIGHLIGHTS, true)) {
-            foreach ($team->members()->get() as $member) {
-                $this->states->setColumns($member, $entry->id, ['highlight' => $actions['highlight']]);
-            }
+            $members = array_values($team->members()->pluck('users.id')->map(fn ($id) => (int) $id)->all());
+            $this->states->setColumnsFor($members, $entry->id, ['highlight' => $actions['highlight']]);
         }
 
         if (! empty($actions['tag_id']) && ($tag = Tag::query()->where('team_id', $team->id)->whereKey((int) $actions['tag_id'])->first())) {

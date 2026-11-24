@@ -46,6 +46,11 @@ Artisan::command('feeds:dispatch-due', function () {
 
     $feeds->each(fn (Feed $feed) => FetchFeed::dispatch($feed));
 
+    // A lease: with a queue backlog the fetch may not run within the minute, and the
+    // feed must not be queued again meanwhile. The fetch sets the real next time;
+    // if the job gets lost, the feed comes up again after the lease.
+    Feed::whereKey($feeds->modelKeys())->update(['next_fetch_at' => now()->addMinutes(15)]);
+
     $this->info("Dispatched {$feeds->count()} feed(s).");
 })->purpose('Queue a fetch for every feed that is due');
 
@@ -222,4 +227,7 @@ Schedule::command('entries:prune')->dailyAt('03:30');
 // Safety nets: stories whose processing job failed, alerts left pending by a crash.
 Schedule::command('signals:process', ['--days' => 2])->hourlyAt(20)->withoutOverlapping();
 Schedule::command('alerts:retry-pending')->everyFifteenMinutes()->withoutOverlapping();
+// Housekeeping: expired team invite links, failed jobs older than 30 days.
+Schedule::command('model:prune')->dailyAt('03:45');
+Schedule::command('queue:prune-failed', ['--hours' => 24 * 30])->dailyAt('03:50');
 Schedule::command('horizon:snapshot')->everyFiveMinutes()->when(fn () => config('queue.default') === 'redis');

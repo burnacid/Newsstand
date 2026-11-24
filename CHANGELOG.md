@@ -6,6 +6,53 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-11-24
+
+### Changed
+
+- **Full article text is a per-subscription choice**: the "Fetch full article text" switch used to turn extraction
+  on or off for everyone subscribed to the feed. Now each subscription (personal or team) has its own switch, and
+  the feed fetches full text while at least one subscriber wants it. Existing subscriptions to feeds that had it on
+  keep it on.
+- Feeds that moved permanently (only 301/308 redirects) are stored under their new address, unless another feed
+  already uses it.
+- A feed that answers 410 Gone is checked once a day; 429 and 503 responses honor the site's `Retry-After`.
+
+### Security
+
+- Fetching feeds, articles and webhook alerts now connects to the exact address that passed the private-network
+  check, for the first request and every redirect, so a DNS answer that changes between check and connection
+  (DNS rebinding) can't reach internal hosts.
+- The private-network check also refuses carrier-grade NAT (100.64.0.0/10), benchmarking, documentation and
+  multicast ranges, IPv4-mapped IPv6 (`::ffff:127.0.0.1`), NAT64 and other special-purpose IPv6 ranges, which
+  PHP's built-in filter lets through.
+- The response size limit now also applies to responses without a `Content-Length` (chunked), stopping the
+  download once the limit is reached.
+
+### Fixed
+
+- Two fetches of the same feed at once could fail on a duplicate story; the second now skips stories the first
+  stored. A feed queued for fetching is no longer queued again every minute while the queue is busy.
+- Two jobs evaluating the same story at once could apply a rule twice (double alerts, `matches_count` counted
+  twice). A match is now claimed before its actions run.
+- Two stories matching the same story at once could split it over two story groups.
+
+### Performance
+
+- New database indexes for due feeds, rule evaluation, story groups, pruning cascades, rules, alert channels,
+  watchlists, notes and widgets, plus PostgreSQL partial indexes for the background sweeps over unprocessed stories.
+- Rule evaluation loads rules, users, earlier matches and watchlist hits for a batch of stories in a few queries
+  instead of several per story and reader; team highlights are written in one query.
+- Story grouping checks for CVE roundups only among the candidate stories instead of the whole CVE table.
+- "Unread only" dashboard widgets use a `NOT EXISTS` check that stays fast with a long reading history.
+- The KEV sync no longer scans the whole catalog for each missing description.
+- The reader caps the list of read stories it keeps visible during a visit at 500.
+
+### Maintenance
+
+- Expired team invite links are deleted a week after they expire, and failed queue jobs after 30 days
+  (`model:prune` and `queue:prune-failed` run nightly).
+
 ## [1.7.1] - 2026-11-24
 
 ### Fixed
