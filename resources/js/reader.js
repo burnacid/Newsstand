@@ -189,6 +189,11 @@ export default () => ({
             return;
         }
 
+        // Enter on a focused button or link does what that control does (e.g. opens that story).
+        if (event.key === 'Enter' && target.closest?.('button, a')) {
+            return;
+        }
+
         const river = this.isRiver();
         const withCurrent = (fn) => () => {
             const id = this.currentId();
@@ -210,7 +215,12 @@ export default () => ({
                 if (confirm('Mark every story here as read?')) this.$wire.markAllRead();
             },
             '/': () => this.$refs.search?.querySelector('input')?.focus() ?? this.$refs.search?.focus(),
-            Escape: () => this.$wire.closeEntry(),
+            Escape: () => {
+                const id = this.$wire.entryId;
+                this.$wire.closeEntry();
+                // Back to the story's row, so keyboard users continue where they were.
+                this.$root.querySelector(`[data-entry-id="${id}"] button`)?.focus({ preventScroll: true });
+            },
             '?': () => this.$flux.modal('shortcuts').show(),
         };
 
@@ -240,6 +250,8 @@ export default () => ({
 
         const el = items[index];
         el.scrollIntoView({ block: 'nearest' });
+        // Focus follows the selection (screen readers announce the story; Tab continues from here).
+        el.querySelector('button')?.focus({ preventScroll: true });
         this.$refs.pane?.scrollTo({ top: 0 });
         this.$wire.select(Number(el.dataset.entryId));
 

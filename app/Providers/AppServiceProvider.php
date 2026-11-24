@@ -5,9 +5,12 @@ namespace App\Providers;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Foundation\Events\DiagnosingHealth;
 use Illuminate\Http\Middleware\TrustProxies;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
@@ -30,6 +33,13 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->configureDefaults();
         $this->configureTrustedProxies();
+
+        // /up (the container health check) also proves the database and cache answer;
+        // an exception here makes it return 500.
+        Event::listen(DiagnosingHealth::class, function () {
+            DB::select('select 1');
+            Cache::get('health-check');
+        });
 
         Gate::define('admin', fn (User $user) => $user->isAdmin() && ! $user->isDisabled());
 

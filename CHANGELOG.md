@@ -6,6 +6,40 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-11-24
+
+### Added
+
+- **Health checks for every container**: Horizon reports through `horizon:status`, the scheduler through the new
+  `php artisan scheduler:check` (fails when the scheduler's heartbeat is older than 3 minutes). `/up` now also
+  checks that the database and cache answer.
+
+### Changed
+
+- **Reader accessibility**:
+  - Story rows no longer nest links (tag chips) inside a button; the story title is the button.
+  - The open story's row is marked as current for screen readers, and "Unread" is announced.
+  - j/k move keyboard focus along with the selection; Escape returns focus to the story's row.
+  - Enter on a focused button or link does what that control does, instead of jumping to the next story.
+  - The "N new stories" bar is announced when it appears.
+  - The mark-all-read, layout and shortcut buttons have labels; the layout switch reports which layout is on.
+- The reader list dims while a search, filter or layout change loads, and the filter row wraps on narrow screens.
+- The dashboard header wraps on phones instead of running off the screen. The All/Unread switch reports its state,
+  and the dashboard menu button has a label.
+- Higher contrast for the version label, story counts on CVE widgets and the NVD link.
+- Production compose: Horizon gets 90 seconds to finish running jobs on deploys, PostgreSQL 60 seconds to shut down,
+  and container logs rotate (5 × 10 MB per container).
+- Dependabot also proposes Composer, npm and Docker base image updates.
+
+### Removed
+
+- The unused starter-kit header layout (it had a dead Search link).
+
+### Tests
+
+- New tests for `/up`, the security headers, `scheduler:check` and the article HTML sanitizer (scripts, event
+  handlers, `javascript:` and `data:` URLs, iframes, SVG, forms, styles). The scaffold example tests are gone.
+
 ## [1.8.0] - 2026-11-24
 
 ### Changed

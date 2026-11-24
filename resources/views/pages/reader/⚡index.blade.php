@@ -429,20 +429,21 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
 
                 <div class="flex shrink-0 items-center gap-1">
                     <flux:tooltip :content="__('Mark all as read') . ' (Shift+A)'">
-                        <flux:button size="sm" variant="ghost" icon="check-circle" wire:click="markAllRead"
+                        <flux:button size="sm" variant="ghost" icon="check-circle" wire:click="markAllRead" :aria-label="__('Mark all as read')"
                             wire:confirm="{{ __('Mark every story here as read?') }}" data-test="mark-all-read" />
                     </flux:tooltip>
                     <div class="flex items-center rounded-lg bg-zinc-100 p-0.5 dark:bg-zinc-800">
                         @foreach (['list' => ['bars-3', __('List')], 'cards' => ['squares-2x2', __('Cards')], 'river' => ['newspaper', __('River: scroll through stories')]] as $mode => [$icon, $label])
                             <flux:tooltip :content="$label">
                                 <flux:button size="xs" :variant="$layout === $mode ? 'filled' : 'subtle'" :icon="$icon"
-                                    wire:click="setLayout('{{ $mode }}')" data-test="layout-{{ $mode }}" />
+                                    wire:click="setLayout('{{ $mode }}')" data-test="layout-{{ $mode }}"
+                                    :aria-label="$label" aria-pressed="{{ $layout === $mode ? 'true' : 'false' }}" />
                             </flux:tooltip>
                         @endforeach
                     </div>
                     <flux:tooltip :content="__('Keyboard shortcuts') . ' (?)'">
                         <flux:modal.trigger name="shortcuts">
-                            <flux:button size="sm" variant="ghost" icon="command-line" />
+                            <flux:button size="sm" variant="ghost" icon="command-line" :aria-label="__('Keyboard shortcuts')" />
                         </flux:modal.trigger>
                     </flux:tooltip>
                 </div>
@@ -452,9 +453,9 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
                 <flux:text size="sm">{{ __('The most covered and most severe stories of the last 48 hours, one per story.') }}</flux:text>
             @endif
 
-            <div @class(['flex items-center gap-2', 'hidden' => $this->isTop()])>
+            <div @class(['flex flex-wrap items-center gap-2', 'hidden' => $this->isTop()])>
                 <flux:input wire:model.live.debounce.400ms="search" x-ref="search" size="sm" icon="magnifying-glass"
-                    :placeholder="__('Search')" class="flex-1" clearable kbd="/" />
+                    :placeholder="__('Search')" class="min-w-40 flex-1" clearable kbd="/" />
 
                 <flux:dropdown position="bottom" align="end">
                     <flux:button size="sm" :variant="$period ? 'filled' : 'ghost'" icon="calendar" data-test="period-filter"
@@ -490,9 +491,10 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
             @endif
         </header>
 
-        <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain" x-ref="list" data-scroll-area x-on:scroll.passive="riverScroll()">
+        <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain transition-opacity" x-ref="list" data-scroll-area x-on:scroll.passive="riverScroll()"
+            wire:loading.class="opacity-50" wire:target="search, show, period, setLayout, markAllRead, showNew" wire:loading.attr="aria-busy">
             {{-- Read through $data so a re-run after teardown finds "undefined", not a ReferenceError. --}}
-            <div x-show="($data.newCount ?? 0) > 0" x-cloak wire:ignore class="sticky top-0 z-10 flex justify-center px-4 py-2">
+            <div x-show="($data.newCount ?? 0) > 0" x-cloak wire:ignore role="status" aria-live="polite" class="sticky top-0 z-10 flex justify-center px-4 py-2">
                 <flux:button size="sm" variant="primary" icon="arrow-up" x-on:click="showNew()" data-test="show-new">
                     <span x-text="(n => n >= 100 ? @js(__('99+ new stories')) : (n === 1 ? @js(__('1 new story')) : @js(__(':count new stories')).replace(':count', n)))($data.newCount ?? 0)"></span>
                 </flux:button>
@@ -534,10 +536,12 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
                 @endforeach
             @else
             @forelse ($this->entries->take($this->limit) as $item)
-                <button type="button" wire:key="entry-{{ $item->id }}" wire:click="select({{ $item->id }})"
+                {{-- A div, not a button: the row holds links (tag chips). The title is the button. --}}
+                <div wire:key="entry-{{ $item->id }}" wire:click="select({{ $item->id }})"
                     data-entry-id="{{ $item->id }}" data-url="{{ $item->url }}"
+                    @if ($item->id === $entryId) aria-current="true" @endif
                     @class([
-                        'group relative flex w-full gap-3 border-b border-zinc-100 px-4 py-3 text-start transition-colors dark:border-zinc-800',
+                        'group relative flex w-full cursor-pointer gap-3 border-b border-zinc-100 px-4 py-3 text-start transition-colors dark:border-zinc-800',
                         'bg-emerald-50 dark:bg-emerald-950/40' => $item->id === $entryId,
                         'hover:bg-zinc-50 dark:hover:bg-zinc-800/60' => $item->id !== $entryId && ! $item->highlight(),
                         'highlight-'.$item->highlight() => $item->highlight() && $item->id !== $entryId,
@@ -552,6 +556,7 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
                     <span class="mt-2 flex w-2 shrink-0 justify-center">
                         @if (! $item->isRead())
                             <span class="size-2 rounded-full bg-emerald-600 dark:bg-emerald-400" title="{{ __('Unread') }}"></span>
+                            <span class="sr-only">{{ __('Unread') }}</span>
                         @endif
                     </span>
 
@@ -570,11 +575,11 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
                             @endif
                         </span>
 
-                        <span @class([
-                            'mt-0.5 block font-serif text-[1.05rem] leading-snug',
+                        <button type="button" @class([
+                            'mt-0.5 block text-start font-serif text-[1.05rem] leading-snug focus-visible:underline focus-visible:outline-none',
                             'font-semibold text-zinc-900 dark:text-zinc-50' => ! $item->isRead(),
                             'text-zinc-500 dark:text-zinc-400' => $item->isRead(),
-                        ])>{{ $item->title ?? __('Untitled') }}</span>
+                        ])>{{ $item->title ?? __('Untitled') }}</button>
 
                         @if ($layout === 'cards' && $item->summary)
                             <span class="mt-1 line-clamp-2 block text-sm text-zinc-600 dark:text-zinc-400">{{ $item->summary }}</span>
@@ -594,7 +599,7 @@ new #[Layout('layouts::reader')] #[Title('Reader')] class extends Component {
                             class="mt-1 size-20 shrink-0 rounded-md bg-zinc-100 object-cover dark:bg-zinc-800"
                             onerror="this.remove()">
                     @endif
-                </button>
+                </div>
             @empty
                 <div class="flex flex-col items-center px-6 py-16 text-center">
                     <x-app-mark size="lg" class="opacity-60" />

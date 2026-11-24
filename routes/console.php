@@ -19,6 +19,7 @@ use App\Services\Digest\DigestBuilder;
 use App\Services\Feeds\FeedRefresher;
 use App\Services\Security\ArticleScanner;
 use App\Services\Security\KevSync;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schedule;
@@ -114,6 +115,21 @@ Artisan::command('security:enrich {--all : Re-check every CVE mentioned in the l
     $cves->each(fn (Cve $cve) => EnrichCve::dispatch($cve));
     $this->info("Queued {$cves->count()} CVE lookup(s).");
 })->purpose('Queue NVD lookups for CVEs without a score or product data');
+
+Artisan::command('scheduler:check {--minutes=3 : How old the last run may be}', function () {
+    $last = Setting::get('scheduler.last_run_at');
+    $at = is_string($last) ? Carbon::parse($last) : null;
+
+    if ($at === null || $at->lessThan(now()->subMinutes((int) $this->option('minutes')))) {
+        $this->error('The scheduler has not run recently'.($at ? " (last run {$at->diffForHumans()})." : '.'));
+
+        return 1;
+    }
+
+    $this->info("The scheduler last ran {$at->diffForHumans()}.");
+
+    return 0;
+})->purpose('Exit with an error when the scheduler has not run in the last few minutes (container health check)');
 
 Artisan::command('alerts:retry-pending', function () {
     // A worker crash or timeout can leave alerts pending with no flush queued.

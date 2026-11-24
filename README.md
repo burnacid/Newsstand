@@ -154,6 +154,7 @@ All Newsstand settings are in `config/newsstand.php`, most with an environment v
 | `php artisan newsstand:user email [--admin]` | Create a user |
 | `php artisan newsstand:admin email [--revoke]` | Grant or remove administrator rights |
 | `php artisan entries:prune` | Delete old stories (runs nightly) |
+| `php artisan scheduler:check` | Fail when the scheduler has not run in the last 3 minutes (used by the container health check) |
 | `php artisan alerts:retry-pending` | Queue delivery again for alerts pending over 15 minutes (runs every 15 minutes) |
 
 ## Security notes
